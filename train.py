@@ -1,25 +1,16 @@
 import torch
-from mmpretrain import get_model
 import os
 import matplotlib.pyplot as plt
 
 from model import *
 from util.datasets import load_data
 
+import segmentation_models_pytorch as smp
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f'Currently using "{device}" device.')
 
-def load_SAM_model(modeName = 'base', pretrain = True, device = 'cpu'):
-    SAM = None
-    match modeName.strip().lower():
-        case 'base':
-            SAM = get_model('vit-base-p16_sam-pre_3rdparty_sa1b-1024px', pretrained = pretrain, device = device)
-        case 'large':
-            SAM = get_model('vit-large-p16_sam-pre_3rdparty_sa1b-1024px', pretrained = pretrain, device = device)
-        case 'huge':
-            SAM = get_model('vit-huge-p16_sam-pre_3rdparty_sa1b-1024px', pretrained = pretrain, device = device)
-    return SAM
-
+# data
 dataLoader = load_data('../data/crack_segmentation_dataset', 
                            device = device, 
                            batch_size = 2, 
@@ -27,8 +18,13 @@ dataLoader = load_data('../data/crack_segmentation_dataset',
                            shuffle = False,
                            drop_last = True)
 
+# model
 SAM_encoder = load_SAM_model('base', device = device)
 VisionMamba_encoder = VisionMambaSeg().to(device)
+
+# loss
+focal_loss = smp.losses.FocalLoss(mode='binary')
+tversky_loss = smp.losses.TverskyLoss(mode='binary')
 
 
 # inputs = torch.rand(1, 3, 448, 448, device = device)
