@@ -8,7 +8,7 @@ from mamba_ssm.ops.triton.layer_norm import RMSNorm
 use_fused_na()
 
 class AttentionMambaBlock(nn.Module):
-    def __init__(self, dim, height, width, num_heads, kernel_size=3, depth=12):
+    def __init__(self, dim, height, width, num_heads, kernel_size=3, depth=6):
         super().__init__()
 
         self.height = height
@@ -22,22 +22,24 @@ class AttentionMambaBlock(nn.Module):
         ])
         self.rmsnorm = RMSNorm(dim)
         self.attention = NeighborhoodAttention2D(dim=dim, num_heads=num_heads, kernel_size=kernel_size) # B, H, W, C
+        self.conv1 = nn.Conv2d(in_channels=2*dim, out_channels=dim, kernel_size=1)
 
     def forward(self, x):
-        B, C, H, W = x.shape
-        assert H == self.height and W == self.width and C == self.mambalayers[0].d_model, \
-            f"Input size should be {C}×{H}×{W}, but got {x.shape}"
+        x = x.permute(0, 2, 3, 1)
+        x_atten = self.attention(x)
+        x_atten = x_atten.permute(0, 3, 1, 2)
 
-        x = x.view(B, C, H * W).permute(0, 2, 1)  # B×L×C
-
+        B, C, H, W = x_atten.shape
+        x_mamba = x_atten.view(B, C, H * W).permute(0, 2, 1)  # B×L×C
         for layer in self.mambalayers:
-            x = layer(x)
+            x_mamba = layer(x_mamba)
+        x_mamba = self.rmsnorm(x_mamba)
+        x_mamba = x_mamba.view(B, H, W, C).permute(0, 3, 1, 2)
 
-        x = self.rmsnorm(x)
-        x = x.view(B, H, W, C)
-        x = self.attention(x)
-        x = x.permute(0, 3, 1, 2)
-        return x
+        x_out = torch.cat([x_atten, x_mamba], dim=1)
+        x_out = self.conv1(x_out)
+
+        return x_out
 
 class encoder(nn.Module):
     def __init__(self):
@@ -82,12 +84,7 @@ if __name__ == '__main__':
 
     # print(output.shape)
     input = torch.rand((1, 3, 448, 448), device='cuda')
-    layer1 = nn.Sequential(
-            nn.Conv2d(3, 32, stride=2, padding=1, kernel_size=3),
-            nn.BatchNorm2d(32),
-            nn.GELU(),
-            AttentionMambaBlock(dim=32, height=224, width=224, num_heads=4, kernel_size=3)
-        ).to('cuda')
-    output = layer1(input)
-    print(output.shape)
-
+    model = encoder().to('cuda')
+    output = model(input)
+    for i in output:
+        print(i.shape)
