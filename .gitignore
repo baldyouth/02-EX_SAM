@@ -1,0 +1,14 @@
+# 忽略 Python 编译文件
+__pycache__/
+*.pyc
+*.pyo
+
+# 忽略 IDE 配置文件
+.vscode/
+.idea/
+
+# 忽略所有模型文件
+*.safetensors
+*.bin
+*.pt
+*.pth
