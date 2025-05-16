@@ -7,7 +7,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-image_size = 1024
+image_size = 448
 train_transforms = T.Compose([
     T.ToPILImage(),
     T.Resize((image_size, image_size)),
@@ -31,14 +31,14 @@ class CrackDataset(Dataset):
         
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        if self.transforms:
-            image_tensor = self.transforms(image).float()
-        else:
-            image_tensor = T.ToTensor()(image).float()
-        
         mask = cv2.imread(mask_path)
         mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-        mask = cv2.resize(mask, (image_size, image_size))
+        if self.transforms:
+            image_tensor = self.transforms(image).float()
+            mask = cv2.resize(mask, (image_size, image_size))
+        else:
+            image_tensor = T.ToTensor()(image).float()
+
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         
         mask_tensor = torch.as_tensor(mask[None], dtype=torch.float32)

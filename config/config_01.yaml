@@ -1,0 +1,38 @@
+model:
+  output_dir: checkpoints
+  name: 
+  pretrained: true
+  device: cuda
+  push_to_hub: False
+
+training:
+  batch_size: 32
+  num_epochs: 100
+  mixed_precision: fp16
+  gradient_accumulation_steps: 1
+  early_stopping_patience: 30
+  save_every_n_epochs: 50
+  log_every_n_steps: 10
+  loss_alpha: 0.5
+  optimizer: adamw
+  base_lr: 1e-3
+  weight_decay: 1e-4
+  momentum: # SGD
+  scheduler: plateau
+  # cosine_restart
+  T_0: 10
+  T_mult: 1
+  eta_min: 1e-6
+  # onecycle
+  max_lr: 1e-3
+  pct_start: 0.3
+  anneal_strategy: cos
+  # plateau
+  plateau_factor: 0.5
+  plateau_patience: 5
+  min_lr: 1e-6
+
+dataset:
+  name: cifar10
+  root: ./data
+  num_workers: 0
