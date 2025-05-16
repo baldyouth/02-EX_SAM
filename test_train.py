@@ -6,7 +6,6 @@ from util.train_fun import train_loop
 from util.optimizers import get_optimizer, get_scheduler
 import segmentation_models_pytorch as smp
 
-# 简易 build_model，参考 util/models.py
 def build_model(model_cfg):
     """
     根据配置返回分割模型。
@@ -34,7 +33,6 @@ def build_model(model_cfg):
     else:
         raise ValueError(f"Unsupported model name: {name}")
 
-# 随机分割数据集，直接返回 (image, mask) 元组
 class RandomSegDataset(Dataset):
     def __init__(self, num_samples=20, img_size=(3, 64, 64)):
         self.num = num_samples
@@ -52,13 +50,12 @@ def main():
     output_dir = os.path.join(os.getcwd(), 'test_checkpoints')
     os.makedirs(output_dir, exist_ok=True)
 
-    # 2. 构造配置字典
     config = {
         "model": {
             "output_dir": 'test_checkpoints',
             "name": "unet",
             "pretrained": False,
-            "device": "cuda",       # 测试时用 CPU
+            "device": "cuda",
             "in_channels": 3,
             "classes": 1,
             "resume": False,
@@ -88,7 +85,6 @@ def main():
         }
     }
 
-    # 3. 构建模型、数据加载器、优化器和调度器
     device = torch.device(config["model"]["device"])
     print(f"✅ USE {device}")
     model = build_model(config["model"]).to(device)
@@ -108,10 +104,8 @@ def main():
     total_steps  = len(train_loader) * config["training"]["num_epochs"]
     lr_scheduler = get_scheduler(optimizer, config["training"], total_steps)
 
-    # 4. 调用 train_loop（不恢复 checkpoint）
     train_loop(config, model, optimizer, train_loader, val_loader, lr_scheduler, resume=config["model"]["resume"])
 
-    # 5. 测试结束，打印临时目录及其内容，保留不删除
     print(f"✅ 训练完成，模型检查点已保存至：{output_dir}")
 
 if __name__ == "__main__":
