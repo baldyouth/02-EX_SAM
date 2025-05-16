@@ -72,6 +72,11 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
     num_epochs = config['training'].get('num_epochs', 100)
     patience_counter = 0
 
+    if start_epoch == num_epochs:
+        accelerator.end_training()
+        print("[RESUME] ERROR: num_epochs == start_epoch")
+        return
+
     total_start_time = time.time()
 
     for epoch in range(start_epoch, num_epochs):
