@@ -9,7 +9,7 @@ import os
 
 image_size = 448
 train_transforms = T.Compose([
-    T.ToPILImage(),
+    # T.ToPILImage(),
     T.Resize((image_size, image_size)),
     # add some color augmentations manually if needed
     T.ToTensor()
@@ -41,8 +41,9 @@ class CrackDataset(Dataset):
 
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         
-        mask_tensor = torch.as_tensor(mask[None], dtype=torch.float32)
+        mask_tensor = torch.as_tensor(mask[None], dtype=torch.float32) / 255.
         # mask_tensor /= 255.
+        # print(mask_tensor.min(), mask_tensor.max())
 
         return image_tensor, mask_tensor
     
@@ -65,9 +66,7 @@ def load_data(rootPath = '', transforms = None, device = 'cpu', batch_size = 1, 
     path_masks = sorted([str(p) for p in path_masks])
 
     data_df = pd.DataFrame({'images': path_images, 'masks': path_masks})
-
     data_set = CrackDataset(data_df, transforms = transforms, device = device)
-
     data_loader = DataLoader(data_set, batch_size = batch_size, collate_fn = data_set.collate_fn, shuffle = shuffle, drop_last = drop_last)
 
     return data_loader

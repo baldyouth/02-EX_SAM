@@ -74,8 +74,8 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
 
     if start_epoch == num_epochs:
         accelerator.end_training()
-        print("[RESUME] ERROR: num_epochs == start_epoch")
-        return
+        # print("[RESUME] ERROR: num_epochs == start_epoch")
+        raise ValueError("[RESUME] ERROR: num_epochs == start_epoch")
 
     total_start_time = time.time()
 

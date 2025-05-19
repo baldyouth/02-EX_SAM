@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from visionmamba import VisionMambaSeg
+from model.visionmamba import VisionMambaSeg
 from natten import NeighborhoodAttention2D, use_fused_na
 from mamba_ssm import Mamba
 from mamba_ssm.ops.triton.layer_norm import RMSNorm

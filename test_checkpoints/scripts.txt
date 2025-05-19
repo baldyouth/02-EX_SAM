@@ -1,0 +1,2 @@
+# check tensorboard
+tensorboard --logdir /home/swjtu/workspace_01/02-EX_SAM/test_checkpoints/XXX/logs

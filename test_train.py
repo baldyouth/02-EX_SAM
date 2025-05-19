@@ -58,12 +58,12 @@ def main():
             "device": "cuda",
             "in_channels": 3,
             "classes": 1,
-            "resume": False,
-            "check_ckpt": '20250516_205928/best_model.pth'
+            "resume": True,
+            "check_ckpt": '20250519_144230/last_model.pth'
         },
         "training": {
             "batch_size": 4,
-            "num_epochs": 10,
+            "num_epochs": 30,
             "mixed_precision": None,
             "gradient_accumulation_steps": 1,
             "early_stopping_patience": 11,
@@ -106,7 +106,7 @@ def main():
 
     train_loop(config, model, optimizer, train_loader, val_loader, lr_scheduler, resume=config["model"]["resume"])
 
-    print(f"✅ 训练完成，模型检查点已保存至：{output_dir}")
+    print(f"✅ 检查点已保存至：{output_dir}")
 
 if __name__ == "__main__":
     main()

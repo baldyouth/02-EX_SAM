@@ -6,7 +6,6 @@ model:
   push_to_hub: False
 
 training:
-  batch_size: 32
   num_epochs: 100
   mixed_precision: fp16
   gradient_accumulation_steps: 1
@@ -33,6 +32,5 @@ training:
   min_lr: 1e-6
 
 dataset:
-  name: cifar10
-  root: ./data
-  num_workers: 0
+  root_path: /home/swjtu/workspace_01/data/crack_segmentation_dataset
+  batch_size: 32

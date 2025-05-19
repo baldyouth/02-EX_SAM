@@ -15,26 +15,45 @@ with open('config/config_01.yaml', 'r') as f:
 device = config['model'].get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Currently using "{device}" device.')
 
-# data
-dataLoader = load_data('../data/crack_segmentation_dataset', 
+# ====== data ======
+train_loader = load_data(config["dataset"]["root_path"], 
+                       transforms = None,
                         device = device, 
-                        batch_size = 2, 
+                        batch_size = config["dataset"]["batch_size"], 
+                        train = True, 
+                        shuffle = True,
+                        drop_last = True)
+test_loader = load_data(config["dataset"]["root_path"], 
+                       transforms = None,
+                        device = device, 
+                        batch_size = config["dataset"]["batch_size"], 
                         train = False, 
                         shuffle = False,
                         drop_last = True)
 
-for idex_batch, batch in enumerate(dataLoader):
-    (images, masks) = batch
-    pass
+# total_samples = len(dataLoader.dataset)
+# print(f"Total samples: {total_samples}")
 
-# model
+# ====== model ======
 SAM_encoder = load_SAM_model('base', device = device)
-VisionMamba_encoder = VisionMambaSeg().to(device)
+TEST_encoder = encoder().to(device)
+# VisionMamba_encoder = VisionMambaSeg().to(device)
+print(TEST_encoder)
 
-# optimizer & lr_scheduler
+# ====== optimizer & lr_scheduler ======
 optimizer = get_optimizer(SAM_encoder, config['training'])
-total_steps = len(dataLoader) * config['training'].get('num_epochs', 100)
+total_steps = len(train_loader) * config['training'].get('num_epochs', 100)
 lr_scheduler = get_scheduler(optimizer, config['training'], total_steps)
+
+# ====== strat train ======
+train_loop(config, 
+           model, 
+           optimizer = optimizer, 
+           train_dataloader = train_loader, 
+           val_dataloader = test_loader, 
+           lr_scheduler = lr_scheduler, 
+           resume = False)
+
 pass
 def Test01():
     model = VisionMambaSeg().to(device)
