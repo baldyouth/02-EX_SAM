@@ -50,7 +50,7 @@ class concatEncoder(nn.Module):
         x(1).shape = (B, 256, H/8, W/8)
         x(2).shape = (B, 512, H/16, W/16)
         '''
-        x1 = torch.concat([self.block1(x(0)), self.block2(x(1)), self.block3(x(2))], dim=1)
+        x1 = torch.concat([self.block1(x[0]), self.block2(x[1]), self.block3(x[2])], dim=1)
         x1 = self.reduce_conv(x1)
         x1 = self.refine(x1)
         return x1
@@ -142,37 +142,26 @@ class fusionModule(nn.Module):
         self.cross_attn = crossAttention(dim=dim)
         self.cca = LightweightCCA(dim)
         self.mamba_module = nn.ModuleList([
-            MambaModule(
-                dim=dim,
-                d_state=d_state,
-                d_conv=d_conv,
-                expand=expand,
-            ) for _ in range(mamba_depth)
+            MambaModule(dim=dim, d_state=d_state, d_conv=d_conv, expand=expand) for _ in range(mamba_depth)
         ])
+
     def forward(self, sam_feat, mynet_feat):
         fusion = self.cross_attn(sam_feat, mynet_feat)
         spatial = self.cca(fusion)
-        out = self.mamba_module(spatial)
-        return out
+        for layer in self.mamba_module:
+            spatial = layer(spatial)
+        return spatial
     
 # !!! SegHead
 class segHead(nn.Module):
     def __init__(self, fusion_channels = 256, skip_channels = 256, mid_channels = 128, num_classes = 1, out_size = (448, 448)):
         super().__init__()
-        # 对跳跃特征先做降维或卷积增强
-        self.skip_conv = nn.Sequential(
-            nn.Conv2d(skip_channels, mid_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(mid_channels),
-            nn.GELU(inplace=True),
-        )
-        self.fuse_conv = nn.Sequential(
-            nn.Conv2d(fusion_channels + fusion_channels, fusion_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(fusion_channels),
-            nn.GELU(inplace=True),
-        )
-
+        
+        self.skip_conv = ConvBNGELU(skip_channels, mid_channels)
+        self.fuse_conv = ConvBNGELU(fusion_channels*2, fusion_channels)
         self.res_conv = nn.Conv2d(mid_channels*2, fusion_channels, 1)
         self.cls_conv = nn.Conv2d(fusion_channels, num_classes, 1)
+        self.out_size = out_size
     
     def forward(self, fused_feat, sam_feat, mynet_feat):
         sam_feat = self.skip_conv(sam_feat)
@@ -191,4 +180,3 @@ class segHead(nn.Module):
         mask_prob = torch.sigmoid(mask_logits)
         
         return mask_logits, mask_prob
-
