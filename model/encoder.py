@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-from model.visionmamba import VisionMambaSeg
 from natten import NeighborhoodAttention2D, use_fused_na
 from mamba_ssm import Mamba
 from mamba_ssm.ops.triton.layer_norm import RMSNorm
@@ -8,12 +7,8 @@ from mamba_ssm.ops.triton.layer_norm import RMSNorm
 use_fused_na()
 
 class AttentionMambaBlock(nn.Module):
-    def __init__(self, dim, num_heads, kernel_size=3, depth=6):
+    def __init__(self, dim, num_heads, kernel_size=3, depth=2):
         super().__init__()
-
-        self.num_heads = num_heads
-        self.kernel_size = kernel_size
-        self.depth = depth
 
         self.mambalayers = nn.ModuleList([
             Mamba(d_model=dim) for _ in range(depth)
@@ -40,39 +35,39 @@ class AttentionMambaBlock(nn.Module):
         return x_out
 
 class encoder(nn.Module):
-    def __init__(self):
+    def __init__(self, dims=[32, 64, 128, 256], num_heads=[4, 4, 8, 8]):
         super().__init__()
 
         self.nattenBlock_1 = nn.Sequential(
             nn.Conv2d(3, 32, stride=2, padding=1, kernel_size=3),
             nn.BatchNorm2d(32),
             nn.GELU(),
-            AttentionMambaBlock(dim=32, num_heads=4, kernel_size=3)
+            AttentionMambaBlock(dim=dims[0], num_heads=num_heads[0], kernel_size=3, depth=2)
         )
         self.nattenBlock_2 = nn.Sequential(
             nn.Conv2d(64, 64, stride=2, padding=1, kernel_size=3),
             nn.BatchNorm2d(64),
             nn.GELU(),
-            AttentionMambaBlock(dim=64, num_heads=4, kernel_size=3)
+            AttentionMambaBlock(dim=dims[1], num_heads=num_heads[1], kernel_size=3, depth=2)
         )
         self.nattenBlock_3 = nn.Sequential(
             nn.Conv2d(128, 128, stride=2, padding=1, kernel_size=3),
             nn.BatchNorm2d(128),
             nn.GELU(),
-            AttentionMambaBlock(dim=128, num_heads=8, kernel_size=3)
+            AttentionMambaBlock(dim=dims[2], num_heads=num_heads[2], kernel_size=3, depth=2)
         )
         self.nattenBlock_4 = nn.Sequential(
             nn.Conv2d(256, 256, stride=2, padding=1, kernel_size=3),
             nn.BatchNorm2d(256),
             nn.GELU(),
-            AttentionMambaBlock(dim=256, num_heads=8, kernel_size=3)
+            AttentionMambaBlock(dim=dims[3], num_heads=num_heads[3], kernel_size=3, depth=2)
         )
     def forward(self, x):
         x1 = self.nattenBlock_1(x)
         x2 = self.nattenBlock_2(x1)
         x3 = self.nattenBlock_3(x2)
         x4 = self.nattenBlock_4(x3)
-        return (x1, x2, x3, x4)
+        return (x2, x3, x4)
 
 if __name__ == '__main__':
 
