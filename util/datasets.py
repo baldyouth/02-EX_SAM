@@ -7,14 +7,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-image_size = 448
-train_transforms = T.Compose([
-    # T.ToPILImage(),
-    T.Resize((image_size, image_size)),
-    # add some color augmentations manually if needed
-    T.ToTensor()
-])
-
 class CrackDataset(Dataset):
     def __init__(self, dataset, transforms=None, device='cpu'):
         self.dataset = dataset.reset_index(drop=True)

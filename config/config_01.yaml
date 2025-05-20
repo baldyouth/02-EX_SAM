@@ -4,20 +4,25 @@ model:
   pretrained: true
   device: cuda
   push_to_hub: False
+  dims: [32, 64, 128, 256]
+  num_heads: [4, 4, 8, 8]
+  num_classes: 1
 
 training:
   num_epochs: 100
   mixed_precision: fp16
   gradient_accumulation_steps: 1
-  early_stopping_patience: 30
-  save_every_n_epochs: 50
+  early_stopping_patience: 4
+  min_epochs_before_stop: 50
+  save_every_n_epochs: 20
   log_every_n_steps: 10
+  val_every_n_epochs: 20
   loss_alpha: 0.5
   optimizer: adamw
   base_lr: 1e-3
-  weight_decay: 1e-4
+  weight_decay: 1e-2
   momentum: # SGD
-  scheduler: plateau
+  scheduler: cosine_restart
   # cosine_restart
   T_0: 10
   T_mult: 1
@@ -33,4 +38,5 @@ training:
 
 dataset:
   root_path: /home/swjtu/workspace_01/data/crack_segmentation_dataset
-  batch_size: 32
+  batch_size: 16
+  size: [448, 448]
