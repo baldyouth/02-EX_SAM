@@ -2,14 +2,31 @@ import os
 import time
 import logging
 import torch
+import torch.nn as nn
+import torch.nn.init as init
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
 from tqdm.auto import tqdm
+from ruamel.yaml import YAML
+from mamba_ssm.ops.triton.layer_norm import RMSNorm
+
 # import segmentation_models_pytorch as smp
 
 from util.losses import CombinedLoss
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
+def init_weights(module):
+    # 卷积层：Kaiming 正态
+    if isinstance(module, nn.Conv2d):
+        init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+        if module.bias is not None:
+            init.zeros_(module.bias)
+
+    # 线性层：Xavier 均匀
+    elif isinstance(module, nn.Linear):
+        init.xavier_uniform_(module.weight)
+        if module.bias is not None:
+            init.zeros_(module.bias)
 
 def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_scheduler, resume=True):
     # 基础输出目录
@@ -22,6 +39,11 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
 
     logging_dir=os.path.join(run_dir, 'logs')
     os.makedirs(logging_dir, exist_ok=True)
+
+    # save config
+    yaml = YAML()
+    with open(os.path.join(run_dir, 'config_used.yaml'), 'w') as f:
+        yaml.dump(config, f)
 
     # 配置logging，日志输出到文件和控制台
     logger = logging.getLogger('train_logger')
@@ -75,7 +97,9 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
         global_step = ckpt.get('global_step', 0)
         best_val_loss = ckpt.get('best_val_loss', float('inf'))
     else:
+        model.apply(init_weights)
         logger.info('[INIT] Starting from scratch')
+        logger.info('[INIT] INIT WEIGHTS')
 
     # Accelerator 包装
     model, optimizer, train_dataloader, val_dataloader, lr_scheduler = \
@@ -102,8 +126,8 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
         for batch_idx, batch in enumerate(train_dataloader):
             with accelerator.accumulate(model):
                 inputs, targets = batch # (images, masks) = batch
-                _, pre_masks = model(inputs)
-                loss = criterion(pre_masks, targets)
+                mask_logits, mask_prob = model(inputs)
+                loss = criterion(mask_logits, targets)
                 accelerator.backward(loss)
                 optimizer.step()
                 # 仅对按批次更新的 scheduler 调用
@@ -113,8 +137,11 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
 
             global_step += 1
             progress.update(1)
-            current_lr = lr_scheduler.get_last_lr()[0] if not is_plateau else optimizer.param_groups[0]['lr']
-            progress.set_postfix({'loss': f"{loss.item():.4f}", 'lr': f"{current_lr:.6f}"})
+
+            # current_lr = lr_scheduler.get_last_lr()[0] if not is_plateau else optimizer.param_groups[0]['lr']
+            current_lr = lr_scheduler.get_last_lr()[0]
+            progress.set_postfix({'loss': f"{loss.item():.4f}", 'lr': f"{current_lr:.8f}"})
+            # logger.info(f'[INIT] global_step: {global_step}, current_lr: {current_lr}')
             if (global_step % log_every) == 0:
                 accelerator.log({'train_loss': loss.item(), 'lr': current_lr}, step=global_step)
 
@@ -128,8 +155,8 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
             with torch.no_grad():
                 for b in val_dataloader:
                     inp, tgt = b
-                    out = model(inp)
-                    l = criterion(out, tgt)
+                    mask_logits, mask_prob = model(inp)
+                    l = criterion(mask_logits, tgt)
                     val_loss += l.item() * len(tgt)
                     tot += len(tgt)
             val_loss /= tot

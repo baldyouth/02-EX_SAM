@@ -7,10 +7,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
+imagenet_mean = [0.485, 0.456, 0.406]
+imagenet_std  = [0.229, 0.224, 0.225]
+
+# default transform
+train_transforms = T.Compose([
+    T.ToTensor(), 
+    T.Normalize(imagenet_mean, imagenet_std),
+])
+
 class CrackDataset(Dataset):
-    def __init__(self, dataset, transforms=None, device='cpu'):
+    def __init__(self, dataset, transforms=None, image_size=[448, 448], device='cpu'):
         self.dataset = dataset.reset_index(drop=True)
         self.transforms = transforms
+        self.image_size = image_size
         self.device = device
         
     def __len__(self):
@@ -26,10 +36,10 @@ class CrackDataset(Dataset):
         mask = cv2.imread(mask_path)
         mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
         if self.transforms:
-            image_tensor = self.transforms(image).float()
-            mask = cv2.resize(mask, (image_size, image_size))
+            image_tensor = self.transforms(image)
+            mask = cv2.resize(mask, self.image_size)
         else:
-            image_tensor = T.ToTensor()(image).float()
+            image_tensor = train_transforms(image)
 
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         
@@ -46,7 +56,7 @@ class CrackDataset(Dataset):
         images, masks = [torch.cat(i).to(self.device) for i in [images, masks]]
         return images, masks
 
-def load_data(rootPath = '', transforms = None, device = 'cpu', batch_size = 1, train = True, shuffle = True, drop_last = True):
+def load_data(rootPath = '', transforms = None, image_size = [448, 448], device = 'cpu', batch_size = 1, train = True, shuffle = True, drop_last = True):
     if train:
         path_images = glob(os.path.join(rootPath, 'train/images') + '/*.jpg')
         path_masks = glob(os.path.join(rootPath, 'train/masks') + '/*.jpg')
@@ -58,7 +68,7 @@ def load_data(rootPath = '', transforms = None, device = 'cpu', batch_size = 1, 
     path_masks = sorted([str(p) for p in path_masks])
 
     data_df = pd.DataFrame({'images': path_images, 'masks': path_masks})
-    data_set = CrackDataset(data_df, transforms = transforms, device = device)
+    data_set = CrackDataset(data_df, transforms = transforms, image_size=image_size, device = device)
     data_loader = DataLoader(data_set, batch_size = batch_size, collate_fn = data_set.collate_fn, shuffle = shuffle, drop_last = drop_last)
 
     return data_loader

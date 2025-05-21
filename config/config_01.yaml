@@ -9,20 +9,21 @@ model:
   num_classes: 1
 
 training:
+  seed: 666
   num_epochs: 100
-  mixed_precision: fp16
+  mixed_precision: no
   gradient_accumulation_steps: 1
-  early_stopping_patience: 4
+  early_stopping_patience: 3
   min_epochs_before_stop: 50
-  save_every_n_epochs: 20
-  log_every_n_steps: 10
-  val_every_n_epochs: 20
+  save_every_n_epochs: 10
+  log_every_n_steps: 50
+  val_every_n_epochs: 10
   loss_alpha: 0.5
   optimizer: adamw
   base_lr: 1e-3
   weight_decay: 1e-2
   momentum: # SGD
-  scheduler: cosine_restart
+  scheduler: onecycle
   # cosine_restart
   T_0: 10
   T_mult: 1
@@ -38,5 +39,5 @@ training:
 
 dataset:
   root_path: /home/swjtu/workspace_01/data/crack_segmentation_dataset
-  batch_size: 16
+  batch_size: 32
   size: [448, 448]

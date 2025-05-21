@@ -6,9 +6,14 @@ def get_optimizer(model, training_cfg):
     lr = training_cfg.get('base_lr', 1e-3)
     wd = training_cfg.get('weight_decay', 1e-4)
     if opt == 'adamw':
-        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+        return torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), 
+                                 lr=lr, 
+                                 weight_decay=wd)
     elif opt == 'sgd':
-        return torch.optim.SGD(model.parameters(), lr=lr, momentum=training_cfg.get('momentum', 0.9), weight_decay=wd)
+        return torch.optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), 
+                               lr=lr, 
+                               momentum=training_cfg.get('momentum', 0.9), 
+                               weight_decay=wd)
     else:
         raise ValueError(f"Unknown optimizer: {opt}")
 

@@ -2,6 +2,8 @@ import torch
 import os
 import matplotlib.pyplot as plt
 from ruamel.yaml import YAML
+import random
+import numpy as np
 
 from model import *
 from util.datasets import load_data
@@ -9,6 +11,14 @@ from util.train_fun import train_loop
 from util.optimizers import get_optimizer, get_scheduler
 
 from model.segModel import segModel
+
+def set_seed(seed: int = 666):
+    random.seed(seed) 
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
 
 yaml = YAML()
 with open('config/config_01.yaml', 'r') as f:
@@ -20,6 +30,7 @@ print(f'Currently using "{device}" device.')
 # !!! ====== data ======
 train_loader = load_data(config["dataset"]["root_path"], 
                         transforms = None,
+                        image_size=config["dataset"]["size"], 
                         device = device, 
                         batch_size = config["dataset"]["batch_size"], 
                         train = True, 
@@ -27,6 +38,7 @@ train_loader = load_data(config["dataset"]["root_path"],
                         drop_last = True)
 test_loader = load_data(config["dataset"]["root_path"], 
                         transforms = None,
+                        image_size=config["dataset"]["size"], 
                         device = device, 
                         batch_size = config["dataset"]["batch_size"], 
                         train = False, 
@@ -37,6 +49,7 @@ test_loader = load_data(config["dataset"]["root_path"],
 # print(f"Total samples: {total_samples}")
 
 # !!! ====== model ======
+set_seed(config["training"]["seed"])
 model = segModel(modeName='base', 
                 device='cuda', 
                 dims=config["model"]["dims"], 
@@ -48,10 +61,14 @@ model = segModel(modeName='base',
 
 # !!! ====== optimizer & lr_scheduler ======
 optimizer = get_optimizer(model, config['training'])
-total_steps = len(train_loader) * config['training'].get('num_epochs', 100)
+total_steps = (len(train_loader) * config['training'].get('num_epochs', 100)) // config['training'].get('gradient_accumulation_steps', 1)
 lr_scheduler = get_scheduler(optimizer, config['training'], total_steps)
 
 # !!! ====== strat train ======
+total_params = sum(p.numel() for p in model.parameters())
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"[MODEL PARAMS] Total: {total_params:,}, Trainable: {trainable_params:,}")
+
 train_loop(config, 
            model, 
            optimizer = optimizer, 

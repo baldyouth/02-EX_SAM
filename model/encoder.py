@@ -62,6 +62,7 @@ class encoder(nn.Module):
             nn.GELU(),
             AttentionMambaBlock(dim=dims[3], num_heads=num_heads[3], kernel_size=3, depth=2)
         )
+
     def forward(self, x):
         x1 = self.nattenBlock_1(x)
         x2 = self.nattenBlock_2(x1)

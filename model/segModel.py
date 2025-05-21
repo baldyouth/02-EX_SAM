@@ -13,6 +13,10 @@ class segModel(nn.Module):
         self.fusion = fusionModule(dim=dims[-1], d_state=16, d_conv=4, expand=2, mamba_depth=2)
         self.seghead = segHead(fusion_channels = dims[-1], skip_channels=dims[-1], mid_channels=dims[-2], num_classes=num_classes, out_size=out_size)
 
+        for param in self.sam.parameters():
+            param.requires_grad = False
+        self.sam.eval()
+
     def forward(self, img):
         (sam_f,) = self.sam(img)
         mynet_f = self.encoder(img) # return (x(0), x(1), x(3))
