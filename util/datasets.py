@@ -11,7 +11,7 @@ imagenet_mean = [0.485, 0.456, 0.406]
 imagenet_std  = [0.229, 0.224, 0.225]
 
 # default transform
-train_transforms = T.Compose([
+default_transforms = T.Compose([
     T.ToTensor(), 
     T.Normalize(imagenet_mean, imagenet_std),
 ])
@@ -39,7 +39,7 @@ class CrackDataset(Dataset):
             image_tensor = self.transforms(image)
             mask = cv2.resize(mask, self.image_size)
         else:
-            image_tensor = train_transforms(image)
+            image_tensor = default_transforms(image)
 
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         

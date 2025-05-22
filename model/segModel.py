@@ -5,9 +5,19 @@ from model.encoder import encoder
 from model.decoder import concatEncoder, fusionModule, segHead
 
 class segModel(nn.Module):
-    def __init__(self, modeName='base', device='cuda', dims=[32, 64, 128, 256], num_heads=[4, 4, 8, 8], num_classes=1, out_size=(448, 448)):
+    def __init__(self, 
+                 modeName='base', 
+                 use_lora=True, 
+                 lora_r=4, 
+                 lora_alpha=1.0,
+                 lora_dropout=0.0, 
+                 device='cuda', 
+                 dims=[32, 64, 128, 256], 
+                 num_heads=[4, 4, 8, 8], 
+                 num_classes=1, 
+                 out_size=(448, 448)):
         super().__init__()
-        self.sam = load_SAM_model(modeName=modeName, device=device)
+        self.sam = load_SAM_model(modeName=modeName, use_lora=use_lora, lora_r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout, device=device)
         self.encoder = encoder(dims=dims, num_heads=num_heads)
         self.decoder = concatEncoder(in_c=[x * 2 for x in dims[1:]], out_c=dims[-1])
         self.fusion = fusionModule(dim=dims[-1], d_state=16, d_conv=4, expand=2, mamba_depth=2)

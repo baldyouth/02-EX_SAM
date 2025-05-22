@@ -1,6 +1,4 @@
 import torch
-import os
-import matplotlib.pyplot as plt
 from ruamel.yaml import YAML
 import random
 import numpy as np
@@ -50,12 +48,16 @@ test_loader = load_data(config["dataset"]["root_path"],
 
 # !!! ====== model ======
 set_seed(config["training"]["seed"])
-model = segModel(modeName='base', 
-                device='cuda', 
+model = segModel(modeName=config["model"]["mode_name"],
+                use_lora=config["model"]["use_lora"],
+                lora_r=config["model"]["lora_r"], 
+                lora_alpha=config["model"]["lora_alpha"],
+                lora_dropout=config["model"]["lora_dropout"],
+                device=device, 
                 dims=config["model"]["dims"], 
                 num_heads=config["model"]["num_heads"], 
                 num_classes=config["model"]["num_classes"], 
-                out_size=config["dataset"]["size"]).to(device)
+                out_size=config["dataset"]["size"])
 
 # print(model)
 
