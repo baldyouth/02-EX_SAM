@@ -50,7 +50,7 @@ class concatEncoder(nn.Module):
         x(1).shape = (B, 256, H/8, W/8)
         x(2).shape = (B, 512, H/16, W/16)
         '''
-        x1 = torch.concat([self.block1(x[0]), self.block2(x[1]), self.block3(x[2])], dim=1)
+        x1 = torch.cat([self.block1(x[0]), self.block2(x[1]), self.block3(x[2])], dim=1)
         x1 = self.reduce_conv(x1)
         x1 = self.refine(x1)
         return x1
@@ -160,23 +160,38 @@ class segHead(nn.Module):
         self.skip_conv = ConvBNGELU(skip_channels, mid_channels)
         self.fuse_conv = ConvBNGELU(fusion_channels*2, fusion_channels)
         self.res_conv = nn.Conv2d(mid_channels*2, fusion_channels, 1)
-        self.cls_conv = nn.Conv2d(fusion_channels, num_classes, 1)
+        self.cls_conv = nn.Conv2d(fusion_channels//16, num_classes, 1)
         self.out_size = out_size
+
+        self.up1 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 28 -> 56
+            ConvBNGELU(fusion_channels, fusion_channels//2)
+        )
+        self.up2 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 56 -> 112
+            ConvBNGELU(fusion_channels//2, fusion_channels//4)
+        )
+        self.up3 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 112 -> 224
+            ConvBNGELU(fusion_channels//4, fusion_channels//8)
+        )
+        self.up4 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 224 -> 448
+            ConvBNGELU(fusion_channels//8, fusion_channels//16)
+        )
     
     def forward(self, fused_feat, sam_feat, mynet_feat):
         sam_feat = self.skip_conv(sam_feat)
         mynet_feat = self.skip_conv(mynet_feat)
-        res_feat = self.res_conv(torch.concat([sam_feat, mynet_feat], dim=1))
+        res_feat = self.res_conv(torch.cat([sam_feat, mynet_feat], dim=1))
 
         x = self.fuse_conv(torch.cat([res_feat, fused_feat], dim=1))
+        x = self.up1(x)
+        x = self.up2(x)
+        x = self.up3(x)
+        x = self.up4(x)
 
         mask_logits = self.cls_conv(x)
-        mask_logits = F.interpolate(
-            mask_logits,
-            size=self.out_size,
-            mode='bilinear',
-            align_corners=False
-        )
         mask_prob = torch.sigmoid(mask_logits)
         
         return mask_logits, mask_prob

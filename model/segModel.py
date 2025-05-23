@@ -37,3 +37,7 @@ class segModel(nn.Module):
         logits, mask = self.seghead(fusion_f, sam_f, concat_f)
 
         return logits, mask
+    
+if __name__ == '__main__':
+    model = segModel()
+    print(model)

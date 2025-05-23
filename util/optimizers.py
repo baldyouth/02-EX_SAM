@@ -30,7 +30,7 @@ def get_scheduler(optimizer, training_cfg, total_steps):
     elif sched == 'onecycle':
         return OneCycleLR(
             optimizer,
-            max_lr=training_cfg.get('max_lr', training_cfg.get('base_lr', 1e-3)),
+            max_lr=training_cfg.get('max_lr', training_cfg.get('base_lr', 1e-4)),
             total_steps=total_steps,
             pct_start=training_cfg.get('pct_start', 0.3),
             anneal_strategy=training_cfg.get('anneal_strategy', 'cos')

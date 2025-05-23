@@ -44,6 +44,8 @@ class CrackDataset(Dataset):
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         
         mask_tensor = torch.as_tensor(mask[None], dtype=torch.float32) / 255.
+
+        # print(mask_tensor)
         # mask_tensor /= 255.
         # print(mask_tensor.min(), mask_tensor.max())
 

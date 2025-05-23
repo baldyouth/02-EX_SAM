@@ -2,6 +2,7 @@ import torch
 from ruamel.yaml import YAML
 import random
 import numpy as np
+import os
 
 from model import *
 from util.datasets import load_data
@@ -17,6 +18,7 @@ def set_seed(seed: int = 666):
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
 
 yaml = YAML()
 with open('config/config_01.yaml', 'r') as f:
