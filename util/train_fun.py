@@ -8,8 +8,9 @@ from tqdm.auto import tqdm
 from ruamel.yaml import YAML
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.tensorboard import SummaryWriter
+from torch.cuda.amp import autocast, GradScaler
 
-from util.losses import CombinedLoss
+from util.losses import CombinedLoss, dice_score, iou_score
 
 def init_weights(module):
     # 卷积层：Kaiming 正态
@@ -61,7 +62,10 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
     logger.addHandler(console_handler)
     
     # Loss
-    criterion = CombinedLoss(alpha=config['training'].get('loss_alpha', 0.5))
+    criterion = CombinedLoss(alpha_focal=config["training"]["alpha_focal"],
+                             alpha_tversky=config["training"]["alpha_tversky"],
+                             alpha_boundary=config["training"]["alpha_boundary"],
+                             alpha_hnm=config["training"]["alpha_hnm"])
 
     # 判断 Scheduler 类型 => step() different
     is_plateau = isinstance(lr_scheduler, ReduceLROnPlateau)
@@ -106,6 +110,8 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
 
     total_start_time = time.time()
 
+    scaler = GradScaler()
+
     try:
         for epoch in range(start_epoch, num_epochs):
             epoch_loss = 0.0
@@ -118,14 +124,15 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                 inputs = inputs.to(device)
                 targets = targets.to(device)
 
-                # forward
-                mask_logits, mask_prob = model(inputs)
-                loss = criterion(mask_logits, targets)
+                optimizer.zero_grad()
+                with autocast():
+                    mask_logits, mask_prob = model(inputs)
+                    loss = criterion(mask_logits, targets)
 
                 # backward
-                loss.backward()
-                optimizer.step()
-                optimizer.zero_grad()
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
 
                 # scheduler step（not plateau）
                 if not is_plateau:
@@ -155,6 +162,8 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
             if (epoch+1) % val_every == 0:
                 model.eval()
                 val_loss = 0.0
+                dice_sum = 0.0
+                iou_sum = 0.0
                 tot = 0
                 with torch.no_grad():
                     for b in val_dataloader:
@@ -165,11 +174,18 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                         mask_logits, mask_prob = model(inp)
                         l = criterion(mask_logits, tgt)
                         val_loss += l.item() * len(tgt)
+
+                        dice_sum += dice_score(mask_prob, tgt)
+                        iou_sum += iou_score(mask_prob, tgt)
+
                         tot += len(tgt)
                 val_loss /= tot
+                val_dice = dice_sum / tot
+                val_iou = iou_sum / tot
 
                 current_lr = lr_scheduler.get_last_lr()[0]
                 logger.info(f"[VALIDATION] epoch={epoch}, val_loss={val_loss:.4f}")
+                logger.info(f"[VALIDATION] val_loss={val_loss:.4f}, Dice={val_dice:.4f}, IoU={val_iou:.4f}")
                 writer.add_scalar('val/loss', val_loss, epoch)
                 writer.add_scalar('val/lr', current_lr, epoch)
 
@@ -193,6 +209,7 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                 else:
                     patience_counter += 1
                     logger.info(f"[EarlyStopping] Epoch {epoch}: val_loss = {val_loss:.4f} | best = {best_val_loss:.4f} | patience = {patience_counter}/{patience}")
+                torch.cuda.empty_cache()
 
             # 周期 & last checkpoint
             if (epoch+1) % save_every == 0 or (epoch+1) == num_epochs:
@@ -226,10 +243,9 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                         'best_val_loss': best_val_loss
                     }, os.path.join(run_dir, 'early_stop_model.pth'))
                 break
+        torch.cuda.empty_cache()
 
     finally:
         writer.close()
     total_end_time = time.time()
     logger.info(f"Total training time: {total_end_time - total_start_time:.2f}s")
-
-    
