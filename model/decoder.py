@@ -4,10 +4,10 @@ from mamba_ssm import Mamba
 import torch.nn.functional as F
 
 class ConvBNGELU(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
         self.block = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding),
+            nn.Conv2d(in_channels, out_channels),
             nn.BatchNorm2d(out_channels),
             nn.GELU()
         )
@@ -42,8 +42,7 @@ class concatEncoder(nn.Module):
         self.refine = nn.Sequential(
             ConvBNGELU(out_c, out_c),
             ConvBNGELU(out_c, out_c)
-        )
-    
+        )        
     def forward(self, x):
         '''
         x(0).shape = (B, 128, H/4, W/4)

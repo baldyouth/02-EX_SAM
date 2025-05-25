@@ -129,7 +129,7 @@ model = segModel(
     num_classes  = config["model"]["num_classes"], 
     out_size     = config["dataset"]["size"]
 )
-ckpt_path = 'checkpoints/20250522_175615/best_model.pth'
+ckpt_path = 'checkpoints/20250523_221918/best_model.pth'
 ckpt = torch.load(ckpt_path, map_location=device)
 model.load_state_dict(ckpt['model'])
 model.to(device).eval()

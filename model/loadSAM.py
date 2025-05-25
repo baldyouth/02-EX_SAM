@@ -35,6 +35,7 @@
 import torch
 import torch.nn as nn
 import math
+from sam import ImageEncoderViT
 from mmpretrain import get_model
 
 class LoRALinear(nn.Linear):
@@ -90,37 +91,40 @@ def inject_lora_to_vitsam(model, target_keywords=('qkv', 'proj', 'ffn.layers.0.0
             setattr(parent, last_part, lora_linear)
 
 
-def load_SAM_model(modeName='base',
-                   pretrain=True,
-                   device='cpu',
-                   use_lora=True,
-                   lora_r=4,
-                   lora_alpha=1.0,
-                   lora_dropout=0.0):
+def load_SAM_model(modeName='base', pretrain=True, device='cuda', use_lora=True, lora_r=4, lora_alpha=1.0, lora_dropout=0.0):
+    
     match modeName.strip().lower():
         case 'base':
-            SAM = get_model('vit-base-p16_sam-pre_3rdparty_sa1b-1024px', pretrained=pretrain, device=device)
+            SAM = ImageEncoderViT(use_rel_pos=True, window_size=14, global_attn_indexes=[2, 5, 8, 11])
+            state_dict = torch.load("/home/swjtu/workspace_01/02-EX_SAM/checkpoints_sam/sam_vit_b_01ec64.pth")
         case 'large':
-            SAM = get_model('vit-large-p16_sam-pre_3rdparty_sa1b-1024px', pretrained=pretrain, device=device)
+            SAM = ImageEncoderViT(use_rel_pos=True, window_size=14, global_attn_indexes=[2, 5, 8, 11]) #TODO
         case 'huge':
-            SAM = get_model('vit-huge-p16_sam-pre_3rdparty_sa1b-1024px', pretrained=pretrain, device=device)
+            SAM = ImageEncoderViT(use_rel_pos=True, window_size=14, global_attn_indexes=[2, 5, 8, 11]) #TODO
         case _:
             raise ValueError(f'Unsupported modeName {modeName}')
 
-    if use_lora:
-        inject_lora_to_vitsam(
-            SAM.backbone,
-            target_keywords=('qkv', 'proj', 'ffn.layers.0.0', 'ffn.layers.1'),
-            r=lora_r,
-            lora_alpha=lora_alpha,
-            lora_dropout=lora_dropout
-        )
+    filtered_image_dict = {
+        k.replace('image_encoder.', '', 1): v
+        for k, v in state_dict.items()
+        if k.startswith('image_encoder.')
+    }
+    SAM.load_state_dict(filtered_image_dict, strict=True)
+
+    # if use_lora:
+    #     inject_lora_to_vitsam(
+    #         SAM.backbone,
+    #         target_keywords=('qkv', 'proj', 'ffn.layers.0.0', 'ffn.layers.1'),
+    #         r=lora_r,
+    #         lora_alpha=lora_alpha,
+    #         lora_dropout=lora_dropout
+    #     )
     
-    for name, param in SAM.backbone.named_parameters():
-        if 'lora_' in name:
-            param.requires_grad = True
-        else:
-            param.requires_grad = False
+    # for name, param in SAM.backbone.named_parameters():
+    #     if 'lora_' in name:
+    #         param.requires_grad = True
+    #     else:
+    #         param.requires_grad = False
     return SAM
 
 def count_trainable_params(model):
@@ -128,9 +132,28 @@ def count_trainable_params(model):
     sum_parameters = sum(p.numel() for p in model.parameters())
     print(f'train_parameters: {train_parameters}, sum_parameters: {sum_parameters}') 
 
-
 if __name__ == '__main__':
-    model = load_SAM_model()
-    print(model)
-    # for name, param in model.named_parameters():
-        # print(f"{name} - requires_grad: {param.requires_grad}")
+
+    from sam import ImageEncoderViT, sam_model_registry
+    sam_checkpoint = "/home/swjtu/workspace_01/02-EX_SAM/checkpoints_sam/sam_vit_b_01ec64.pth"
+    model_type = "vit_b"
+    
+    # sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+    # sam.to(device='cuda')
+
+    # img_encoder = sam.image_encoder
+
+    ################
+    state_dict = torch.load(sam_checkpoint, map_location='cuda')
+    filtered_image_dict = {
+        k.replace('image_encoder.', '', 1): v
+        for k, v in state_dict.items()
+        if k.startswith('image_encoder.')
+    }
+    img_encoder = ImageEncoderViT(use_rel_pos=True, window_size=14, global_attn_indexes=[2, 5, 8, 11])
+    img_encoder.load_state_dict(filtered_image_dict, strict=True)
+    input = torch.rand((1, 3, 1024, 1024)).to('cuda')
+    img_encoder.to('cuda')
+    ouputs = img_encoder(input)
+    for output in ouputs:
+        print(output.shape)

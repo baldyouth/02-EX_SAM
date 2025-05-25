@@ -61,7 +61,7 @@ model = segModel(modeName=config["model"]["mode_name"],
                 num_classes=config["model"]["num_classes"], 
                 out_size=config["dataset"]["size"])
 
-# print(model)
+print(model)
 
 # !!! ====== optimizer & lr_scheduler ======
 optimizer = get_optimizer(model, config['training'])
