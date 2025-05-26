@@ -113,7 +113,7 @@ class ImageEncoderViT(nn.Module):
 
         for i, blk in enumerate(self.blocks):
             x = blk(x)
-            if i in [2, 5, 8]:
+            if i in [2, 5, 8, 11]:
                 feat = x
                 feat = feat.permute(0, 3, 1, 2)
                 intermediate_feats.append(feat)

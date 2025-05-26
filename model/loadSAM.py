@@ -141,6 +141,8 @@ if __name__ == '__main__':
     # sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
     # sam.to(device='cuda')
 
+    # print(sam)
+
     # img_encoder = sam.image_encoder
 
     ################
