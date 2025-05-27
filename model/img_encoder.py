@@ -1,4 +1,5 @@
 from loadSAM import load_SAM_model
+from SS2D import SS2D
 import torch.nn as nn
 
 from mamba_ssm import Mamba
@@ -54,10 +55,12 @@ class MambaBlock(nn.Module):
     def __init__(self, dim, depth=8):
         super().__init__()
         self.mambalayers = nn.ModuleList([
-            Mamba(d_model=dim) for _ in range(depth)
+            nn.Sequential(
+                Mamba(d_model=dim),
+                RMSNorm(dim)
+            ) for _ in range(depth)
         ])
-        self.rmsnorm = RMSNorm(dim)
-    
+
     def forward(self, x):
         B, C, H, W = x.shape
         x = x.view(B, C, H * W).permute(0, 2, 1) # B, H*W, C
@@ -167,55 +170,182 @@ class SAMGuidedCrossAttention(nn.Module):
 
         return self.proj(out_w)
 
+# !!! 通道注意力模块
+class ChannelAttention(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        
+        self.fc = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // reduction, 1, bias=False),
+            nn.ReLU(),
+            nn.Conv2d(in_channels // reduction, in_channels, 1, bias=False)
+        )
+        
+    def forward(self, x):
+        avg_out = self.fc(self.avg_pool(x))
+        max_out = self.fc(self.max_pool(x))
+        out = avg_out + max_out
+        return torch.sigmoid(out)
+
+# !!! 空间注意力模块
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super().__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2, bias=False)
+        
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        out = torch.cat([avg_out, max_out], dim=1)
+        out = self.conv(out)
+        return torch.sigmoid(out)
+
+# !!! MultiLevelDeconvFusion
+class MultiLevelDeconvFusion(nn.Module):
+    def __init__(self, 
+                 sam_channels=768,
+                 fpn_channels_list=[32,64,128,256],
+                 reduction=4,
+                 use_bilinear=False):# 是否使用双线性插值替代反卷积
+        super().__init__()
+        
+        self.fpn_levels = len(fpn_channels_list)
+        self.use_bilinear = use_bilinear
+        
+        self.deconv_modules = nn.ModuleList()
+        self.channel_attn_modules = nn.ModuleList()
+        self.spatial_attn_modules = nn.ModuleList()
+        self.fusion_conv_modules = nn.ModuleList()
+        
+        for i in range(self.fpn_levels):
+            # 计算需要的反卷积次数和步长
+            scale_factor = 2 ** (self.fpn_levels - i - 1) # [8, 4, 2, 1]
+            
+            if use_bilinear: # 使用双线性插值+卷积
+                deconv_module = nn.Sequential(
+                    nn.Upsample(scale_factor=scale_factor, mode='bilinear', align_corners=False),
+                    nn.Conv2d(sam_channels, fpn_channels_list[i], kernel_size=1),
+                    nn.BatchNorm2d(fpn_channels_list[i]),
+                    nn.ReLU(inplace=True)
+                )
+            else: # 使用多级反卷积
+                deconv_layers = []
+                current_channels = sam_channels # 768
+                
+                # 逐级反卷积
+                while scale_factor > 1:
+                    # 每次反卷积缩小一半
+                    deconv_layers.append(nn.ConvTranspose2d(
+                        current_channels, current_channels//2, 
+                        kernel_size=4, stride=2, padding=1
+                    ))
+                    deconv_layers.append(nn.BatchNorm2d(current_channels//2))
+                    deconv_layers.append(nn.GELU())
+                    current_channels = current_channels // 2
+                    scale_factor = scale_factor // 2
+                
+                # 调整最终通道数与FPN层匹配
+                deconv_layers.append(nn.Conv2d(current_channels, fpn_channels_list[i], kernel_size=1))
+                deconv_layers.append(nn.BatchNorm2d(fpn_channels_list[i]))
+                deconv_layers.append(nn.GELU())
+                
+                deconv_module = nn.Sequential(*deconv_layers)
+            
+            # 通道注意力模块
+            channel_attn = ChannelAttention(fpn_channels_list[i]*2, reduction)
+            
+            # 空间注意力模块
+            spatial_attn = SpatialAttention()
+            
+            # 融合卷积
+            fusion_conv = nn.Sequential(
+                nn.Conv2d(fpn_channels_list[i]*2, fpn_channels_list[i], kernel_size=3, padding=1),
+                nn.BatchNorm2d(fpn_channels_list[i]),
+                nn.ReLU(inplace=True)
+            )
+            
+            self.deconv_modules.append(deconv_module)
+            self.channel_attn_modules.append(channel_attn)
+            self.spatial_attn_modules.append(spatial_attn)
+            self.fusion_conv_modules.append(fusion_conv)
+    
+    def forward(self, sam_feature, fpn_features):
+        """
+        将SAM特征与FPN各层特征对齐并融合
+        
+        参数:
+            sam_feature: SAM提取的特征，形状为[B, 768, 64, 64]
+            fpn_features: FPN各层特征列表，形状依次为[B, 32, 512, 512], [B, 64, 256, 256], 
+                          [B, 128, 128, 128], [B, 256, 64, 64]
+        
+        返回:
+            fused_features: 融合后的特征列表
+        """
+        fused_features = []
+        
+        for i in range(self.fpn_levels):
+            # 1. 多级反卷积上采样SAM特征
+            upsampled_sam = self.deconv_modules[i](sam_feature)
+            
+            # 2. 特征拼接
+            concat_feature = torch.cat([fpn_features[i], upsampled_sam], dim=1)
+            
+            # 3. 应用通道注意力
+            channel_weight = self.channel_attn_modules[i](concat_feature)
+            channel_enhanced = concat_feature * channel_weight
+            
+            # 4. 应用空间注意力
+            spatial_weight = self.spatial_attn_modules[i](channel_enhanced)
+            spatial_enhanced = channel_enhanced * spatial_weight
+            
+            # 5. 最终融合卷积
+            fused = self.fusion_conv_modules[i](spatial_enhanced)
+            
+            fused_features.append(fused)
+        
+        return fused_features
+
 #!!! ImgEncoder
 class ImgEncoder(nn.Module):
     def __init__(self, dims=[768, 256], num_heads=[4, 8], kernel_size=3, depths=[2, 2, 8, 8], base_channels=32):
         super().__init__()
-        self.attn1 = AttentionBlock(dim=dims[0], num_heads=num_heads[0], kernel_size=kernel_size, depth=depths[0])
-        self.attn2 = AttentionBlock(dim=dims[0], num_heads=num_heads[1], kernel_size=kernel_size, depth=depths[1])
-        self.mamba1 = MambaBlock(dim=dims[0], depth=depths[2])
-        self.mamba2 = MambaBlock(dim=dims[0], depth=depths[3])
-
-        self.SAM = load_SAM_model(modeName='base')
+        self.sam = load_SAM_model(modeName='base', freeze=True)
         self.fpn = FPN(base_channels=base_channels)
 
-        self.samguide1 = SAMGuidedCrossAttention(dim=base_channels, heads=2, window_size=8)
-        self.samguide2 = SAMGuidedCrossAttention(dim=base_channels*2, heads=2, window_size=8)
-        self.samguide3 = SAMGuidedCrossAttention(dim=base_channels*4, heads=2, window_size=4)
-        self.samguide4 = SAMGuidedCrossAttention(dim=base_channels*8, heads=2, window_size=4)
-    
+        self.fusion = MultiLevelDeconvFusion()
+
     def forward(self, x):
         with torch.no_grad():
-            self.SAM.eval()
-            SAM_f = self.SAM(x)
+            self.sam.eval()
+            SAM_f = self.sam(x)
+        
+        FPN_f = self.fpn(x)
 
-        Attn1_f = self.attn1(SAM_f[0])
-        Attn2_f = self.attn2(SAM_f[1])
-        Mamba1_f = self.mamba1(SAM_f[2])
-        Mamba2_f = self.mamba2(SAM_f[3])
+        out_f = self.fusion(SAM_f[:-1], FPN_f)
+        
 
-        fpn_1, fpn_2, fpn_3, fpn_4 = self.fpn(x)
+        
 
-        imgf_1 = self.samguide1(fpn_1, Attn1_f)
-        imgf_2 = self.samguide2(fpn_2, Attn2_f)
-        imgf_3 = self.samguide3(fpn_3, Mamba1_f)
-        imgf_4 = self.samguide4(fpn_4, Mamba2_f)
-
-        return imgf_1, imgf_2, imgf_3, imgf_4, SAM_f[-1]
+        return out_f
 
 if __name__ == '__main__':
     import torch
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # model = ImgEncoder()
-    model = FPN()
-    # print(model)
+    x = torch.rand((1, 3, 1024, 1024), device=device)
+    model = ImgEncoder().to(device)
+    y = model(x)
 
-    input = torch.rand((1, 3, 1024, 1024)).to('cuda')
-    model.to('cuda')
-    output = model(input)
-    for i in output:
-        print(i.shape)
+# [B, 768, 64, 64]
+# [B, 768, 64, 64]
+# [B, 768, 64, 64]
+# [B, 768, 64, 64]
 
-
+# [B, 32, 512, 512]
+# [B, 64, 256, 256]
+# [B, 128, 128, 128]
+# [B, 256, 64, 64]
 
     
