@@ -41,6 +41,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 import numpy as np
+import torch.nn.functional as F
 
 class LoRALinear(nn.Linear):
     def __init__(self, in_features, out_features, r=4, lora_alpha=1.0, lora_dropout=0.0, bias=True):
@@ -95,11 +96,14 @@ def inject_lora_to_vitsam(model, target_keywords=('qkv', 'proj', 'ffn.layers.0.0
             setattr(parent, last_part, lora_linear)
 
 
-def load_SAM_model(modeName='base', freeze=True, pretrain=True, device='cuda', use_lora=True, lora_r=4, lora_alpha=1.0, lora_dropout=0.0):
+def load_SAM_model(modeName='base', freeze=True, use_rel_pos=True, pretrain=True, device='cuda', use_lora=True, lora_r=4, lora_alpha=1.0, lora_dropout=0.0):
     
     match modeName.strip().lower():
         case 'base':
-            SAM = ImageEncoderViT(use_rel_pos=True, window_size=14, global_attn_indexes=[2, 5, 8, 11])
+            if use_rel_pos:
+                SAM = ImageEncoderViT(use_rel_pos=True, window_size=14, global_attn_indexes=[2, 5, 8, 11])
+            else:
+                SAM = ImageEncoderViT(img_size=448, use_rel_pos=True, window_size=14, global_attn_indexes=[2, 5, 8, 11])
             state_dict = torch.load("/home/swjtu/workspace_01/02-EX_SAM/checkpoints_sam/sam_vit_b_01ec64.pth")
         case 'large':
             SAM = ImageEncoderViT(use_rel_pos=True, window_size=14, embed_dim=1024, depth=24, num_heads=16, global_attn_indexes=[5, 11, 17, 23]) #TODO
@@ -110,13 +114,14 @@ def load_SAM_model(modeName='base', freeze=True, pretrain=True, device='cuda', u
         case _:
             raise ValueError(f'Unsupported modeName {modeName}')
 
-    filtered_image_dict = {
-        k.replace('image_encoder.', '', 1): v
-        for k, v in state_dict.items()
-        if k.startswith('image_encoder.')
-    }
+    if pretrain:
+        filtered_image_dict = {
+            k.replace('image_encoder.', '', 1): v
+            for k, v in state_dict.items()
+            if k.startswith('image_encoder.')
+        }
 
-    SAM.load_state_dict(filtered_image_dict, strict=True)
+        SAM.load_state_dict(filtered_image_dict, strict=False)
 
     if freeze:
         for param in SAM.parameters():
@@ -138,6 +143,8 @@ def load_SAM_model(modeName='base', freeze=True, pretrain=True, device='cuda', u
     #         param.requires_grad = False
 
     return SAM
+
+
 
 def count_trainable_params(model):
     train_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -328,16 +335,25 @@ def visualize_features(features, layer_names, cmap='viridis'):
 
 if __name__ == '__main__':
     layer_names = ["Layer 2", "Layer 5", "Layer 8", "Layer 11", "Neck"]
-    img_encoder = load_SAM_model(modeName='base')
+    img_encoder = load_SAM_model(modeName='base', use_rel_pos=True)
+
+    # for name, param in img_encoder.named_parameters():
+    #     print(f"参数: {name}, 可训练: {param.requires_grad}")
+
+    # input01: image
+    # image_path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/train/images/CFD_113.jpg"
+    # image_tensor, original_image, original_size, scale = preprocess_image(image_path)
+
+    # input02: test tensor
+    test_tensor = torch.rand((1, 3, 448, 448), device='cuda')
+
     img_encoder.to('cuda')
+    ouputs = img_encoder(test_tensor)
 
-    for name, param in img_encoder.named_parameters():
-        print(f"参数: {name}, 可训练: {param.requires_grad}")
+    for output in ouputs:
+        print(output.shape)
 
-    image_path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/train/images/CFD_002.jpg"
-    image_tensor, original_image, original_size, scale = preprocess_image(image_path)
-    ouputs = img_encoder(image_tensor)
-    # visualize_all_layers(ouputs)
+    visualize_all_layers(ouputs)
     visualize_features(ouputs, layer_names)
 
     
