@@ -40,7 +40,6 @@ from mmpretrain import get_model
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-import numpy as np
 import torch.nn.functional as F
 
 class LoRALinear(nn.Linear):
@@ -151,7 +150,7 @@ def count_trainable_params(model):
     sum_parameters = sum(p.numel() for p in model.parameters())
     print(f'train_parameters: {train_parameters}, sum_parameters: {sum_parameters}') 
 
-def preprocess_image(image_path, target_size=1024):
+def preprocess_image(image_path, target_size=448):
     """
     读取并预处理图像，使其符合SAM模型的输入要求
     
@@ -239,45 +238,6 @@ def visualize_all_layers(features, channels=None, title_prefix=""):
     plt.tight_layout()
     plt.show()
     return fig
-    
-
-    """
-    Visualize precomputed feature maps on CPU.
-
-    Args:
-        features (dict): mapping from layer name to feature tensor of shape (batch, channels, height, width) or (channels, height, width), possibly on CUDA.
-        layer_names (list of str): list of layer names to plot
-        cmap (str): matplotlib colormap
-    """
-    n = len(layer_names)
-    fig, axes = plt.subplots(n, 1, figsize=(6, 3 * n))
-    if n == 1:
-        axes = [axes]
-
-    for ax, lname in zip(axes, layer_names):
-        feat = features.get(lname)
-        if feat is None:
-            ax.set_title(f"Layer '{lname}' not found in features.")
-            ax.axis('off')
-            continue
-        # move to CPU and convert to numpy
-        feat_cpu = feat.detach().cpu()
-        # if batch dimension present, take first sample and average channels
-        if feat_cpu.ndim == 4:
-            fmap = feat_cpu[0].mean(dim=0).numpy()
-        elif feat_cpu.ndim == 3:
-            fmap = feat_cpu.mean(dim=0).numpy()
-        else:
-            ax.set_title(f"Layer '{lname}' has unsupported shape {feat_cpu.shape}.")
-            ax.axis('off')
-            continue
-        im = ax.imshow(fmap, cmap=cmap)
-        ax.set_title(lname)
-        ax.axis('off')
-        fig.colorbar(im, ax=ax)
-
-    plt.tight_layout()
-    plt.show()
 
 def visualize_features(features, layer_names, cmap='viridis'):
 
@@ -335,25 +295,46 @@ def visualize_features(features, layer_names, cmap='viridis'):
 
 if __name__ == '__main__':
     layer_names = ["Layer 2", "Layer 5", "Layer 8", "Layer 11", "Neck"]
-    img_encoder = load_SAM_model(modeName='base', use_rel_pos=True)
+    # img_encoder = load_SAM_model(modeName='base', use_rel_pos=True)
 
-    # for name, param in img_encoder.named_parameters():
-    #     print(f"参数: {name}, 可训练: {param.requires_grad}")
+    # # for name, param in img_encoder.named_parameters():
+    # #     print(f"参数: {name}, 可训练: {param.requires_grad}")
 
-    # input01: image
-    # image_path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/train/images/CFD_113.jpg"
-    # image_tensor, original_image, original_size, scale = preprocess_image(image_path)
+    # # input01: image
+    # # image_path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/train/images/CFD_113.jpg"
+    # # image_tensor, original_image, original_size, scale = preprocess_image(image_path)
 
-    # input02: test tensor
-    test_tensor = torch.rand((1, 3, 448, 448), device='cuda')
+    # # input02: test tensor
+    # test_tensor = torch.rand((1, 3, 448, 448), device='cuda')
 
-    img_encoder.to('cuda')
-    ouputs = img_encoder(test_tensor)
+    # img_encoder.to('cuda')
+    # ouputs = img_encoder(test_tensor)
 
-    for output in ouputs:
-        print(output.shape)
+    # for output in ouputs:
+    #     print(output.shape)
+
+    # visualize_all_layers(ouputs)
+    # visualize_features(ouputs, layer_names)
+
+    img_encoder = ImageEncoderViT(img_size=448, use_abs_pos=False, use_rel_pos=False).to('cuda')
+    image_path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/train/images/CFD_002.jpg"
+    image_tensor, original_image, original_size, scale = preprocess_image(image_path, target_size=448)
+
+    state_dict = torch.load("/home/swjtu/workspace_01/02-EX_SAM/checkpoints_sam/sam_vit_b_01ec64.pth")
+    filtered_image_dict = {
+            k.replace('image_encoder.', '', 1): v
+            for k, v in state_dict.items()
+            if k.startswith('image_encoder.')
+        }
+
+    img_encoder.load_state_dict(filtered_image_dict, strict=False)
+
+    ouputs = img_encoder(image_tensor)
 
     visualize_all_layers(ouputs)
     visualize_features(ouputs, layer_names)
+
+    for output in ouputs:
+        print(output.shape)
 
     

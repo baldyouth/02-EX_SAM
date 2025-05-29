@@ -1,7 +1,7 @@
-from loadSAM import load_SAM_model
-from SS2D import SS2D, SS2D_2, SS2D_3
+from SS2D import SS2D
 import torch.nn as nn
 import torch
+from mmpretrain import get_model
 
 from mamba_ssm import Mamba
 from mamba_ssm.ops.triton.layer_norm import RMSNorm
@@ -206,7 +206,7 @@ class SpatialAttention(nn.Module):
 # !!! MultiLevelDeconvFusion
 class MultiLevelDeconvFusion(nn.Module):
     def __init__(self, 
-                 sam_channels=768,
+                 sam_channels=256,
                  fpn_channels_list=[32,64,128,256],
                  reduction=4,
                  use_bilinear=False):# 是否使用双线性插值替代反卷积
@@ -233,7 +233,7 @@ class MultiLevelDeconvFusion(nn.Module):
                 )
             else: # 使用多级反卷积
                 deconv_layers = []
-                current_channels = sam_channels # 768
+                current_channels = sam_channels
                 
                 # 逐级反卷积
                 while scale_factor > 1:
@@ -268,7 +268,7 @@ class MultiLevelDeconvFusion(nn.Module):
             # )
             # fusion_conv = ConvBNGELU(in_channels=fpn_channels_list[i]*2, out_channels=fpn_channels_list[i], kernel_size=3, stride=1, padding=1)
             fusion_conv = nn.Sequential(
-                SS2D(fpn_channels_list[i]*2, depth=2, fusion_method='concat', diag_mode='none'),
+                SS2D(fpn_channels_list[i]*2, depth=2, fusion_method='attention', diag_mode='none'),
                 ConvBNGELU(in_channels=fpn_channels_list[i]*2, out_channels=fpn_channels_list[i], kernel_size=3, stride=1, padding=1)
             )
             
@@ -278,17 +278,6 @@ class MultiLevelDeconvFusion(nn.Module):
             self.fusion_conv_modules.append(fusion_conv)
     
     def forward(self, sam_features, fpn_features):
-        """
-        将SAM特征与FPN各层特征对齐并融合
-        
-        参数:
-            sam_feature: SAM提取的特征，形状为[B, 768, 64, 64]
-            fpn_features: FPN各层特征列表，形状依次为[B, 32, 512, 512], [B, 64, 256, 256], 
-                          [B, 128, 128, 128], [B, 256, 64, 64]
-        
-        返回:
-            fused_features: 融合后的特征列表
-        """
         fused_features = []
         
         for i in range(self.fpn_levels):
@@ -315,9 +304,14 @@ class MultiLevelDeconvFusion(nn.Module):
 
 #!!! ImgEncoder
 class ImgEncoder(nn.Module):
-    def __init__(self, modeName='base', freeze=True, use_rel_pos=True, pretrain=True, base_channels=32):
+    def __init__(self, device='cuda', base_channels=32):
         super().__init__()
-        self.sam = load_SAM_model(modeName=modeName, freeze=freeze, use_rel_pos=use_rel_pos, pretrain=pretrain)
+        self.sam = get_model(
+            'vit-base-p16_sam-pre_3rdparty_sa1b-1024px',
+            backbone=dict(out_indices=(2, 5, 8, 11)), 
+            pretrained=True, 
+            device=device)
+
         self.fpn = FPN(base_channels=base_channels)
 
         self.fusion = MultiLevelDeconvFusion()
@@ -328,15 +322,15 @@ class ImgEncoder(nn.Module):
             SAM_f = self.sam(x)
         
         FPN_f = self.fpn(x)
-        FUSION_f = self.fusion(SAM_f[:-1], FPN_f)
+        FUSION_f = self.fusion(SAM_f, FPN_f)
 
-        return *FUSION_f, SAM_f[-1]
+        return *FUSION_f, SAM_f[-1] 
 
 if __name__ == '__main__':
     import torch
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    x = torch.rand((1, 3, 1024, 1024), device=device)
+    x = torch.rand((1, 3, 448, 448), device=device)
     model = ImgEncoder().to(device)
     y = model(x)
 
@@ -345,6 +339,7 @@ if __name__ == '__main__':
     for i in y:
         print(i.shape)
 
+# input: [1, 3, 1024, 1024]
 # [B, 768, 64, 64]
 # [B, 768, 64, 64]
 # [B, 768, 64, 64]

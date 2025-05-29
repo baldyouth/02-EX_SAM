@@ -50,14 +50,6 @@ class ImgDecoder(nn.Module):
         self.head = nn.Conv2d(in_channels[3], out_channels, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
-        '''
-        x:
-            torch.Size([1, 32, 512, 512])
-            torch.Size([1, 64, 256, 256])
-            torch.Size([1, 128, 128, 128])
-            torch.Size([1, 256, 64, 64])
-            torch.Size([1, 256, 64, 64])
-        '''
         up_x1 = self.up_block1(torch.cat([x[4], x[3]], dim=1))
         up_x2 = self.up_block2(torch.cat([up_x1, x[2]], dim=1))
         up_x3 = self.up_block3(torch.cat([up_x2, x[1]], dim=1))
@@ -70,13 +62,14 @@ class ImgDecoder(nn.Module):
 
 if __name__ == '__main__':
     input = [
-        torch.rand((1, 32, 512, 512), device='cuda'),
-        torch.rand((1, 64, 256, 256), device='cuda'),
-        torch.rand((1, 128, 128, 128), device='cuda'),
-        torch.rand((1, 256, 64, 64), device='cuda'),
-        torch.rand((1, 256, 64, 64), device='cuda'),
+        torch.rand((1, 32, 224, 224), device='cuda'),
+        torch.rand((1, 64, 112, 112), device='cuda'),
+        torch.rand((1, 128, 56, 56), device='cuda'),
+        torch.rand((1, 256, 28, 28), device='cuda'),
+        torch.rand((1, 256, 28, 28), device='cuda'),
     ]
     model = ImgDecoder().to('cuda')
     output = model(input)
+    print(output.shape)
     
         
