@@ -1,5 +1,5 @@
-from img_encoder import ImgEncoder
-from img_decoder import ImgDecoder
+from model.img_encoder import ImgEncoder
+from model.img_decoder import ImgDecoder
 
 import torch
 import torch.nn as nn
@@ -19,7 +19,7 @@ class ImgModel(nn.Module):
         return out
 
 if __name__ == '__main__':
-    input = torch.rand((8, 3, 448, 448), device='cuda')
+    input = torch.rand((1, 3, 448, 448), device='cuda')
 
     model = ImgModel().to('cuda')
     output = model(input)

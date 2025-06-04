@@ -55,10 +55,20 @@ class CrackDataset(Dataset):
         images, masks = tuple(zip(*batch))
         images = [img[None] for img in images]
         masks = [msk[None] for msk in masks]
-        images, masks = [torch.cat(i).to(self.device) for i in [images, masks]]
+        # images, masks = [torch.cat(i).to(self.device) for i in [images, masks]]
+        images, masks = [torch.cat(i) for i in [images, masks]]
         return images, masks
 
-def load_data(rootPath = '', transforms = None, image_size = [448, 448], device = 'cpu', batch_size = 1, train = True, shuffle = True, drop_last = True):
+def load_data(rootPath = '', 
+              transforms = None, 
+              image_size = [448, 448], 
+              device = 'cpu', 
+              batch_size = 1, 
+              train = True, 
+              shuffle = True, 
+              drop_last = True, 
+              num_workers=4,
+              pin_memory=True):
     if train:
         path_images = glob(os.path.join(rootPath, 'train/images') + '/*.jpg')
         path_masks = glob(os.path.join(rootPath, 'train/masks') + '/*.jpg')
@@ -71,7 +81,13 @@ def load_data(rootPath = '', transforms = None, image_size = [448, 448], device 
 
     data_df = pd.DataFrame({'images': path_images, 'masks': path_masks})
     data_set = CrackDataset(data_df, transforms = transforms, image_size=image_size, device = device)
-    data_loader = DataLoader(data_set, batch_size = batch_size, collate_fn = data_set.collate_fn, shuffle = shuffle, drop_last = drop_last)
+    data_loader = DataLoader(data_set, 
+                             batch_size = batch_size, 
+                             collate_fn = data_set.collate_fn, 
+                             shuffle = shuffle, 
+                             drop_last = drop_last, 
+                             num_workers=num_workers, 
+                             pin_memory=pin_memory)
 
     return data_loader
 

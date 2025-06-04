@@ -1,4 +1,4 @@
-from SS2D import SS2D
+from model.SS2D import SS2D
 import torch.nn as nn
 import torch
 from mmpretrain import get_model
@@ -94,38 +94,38 @@ class AttentionBlock(nn.Module):
 
 #!!! FPN
 class FPN(nn.Module):
-    def __init__(self, in_channels=3, base_channels=32):
+    def __init__(self, in_channels=3, base_channels=256):
         super().__init__()
         self.layer1 = nn.Sequential(
             ConvBNGELU(in_channels=in_channels, out_channels=base_channels, kernel_size=3, stride=2, padding=1),
             ConvBNGELU(in_channels=base_channels, out_channels=base_channels, kernel_size=3, stride=1, padding=1),
             ConvBNGELU(in_channels=base_channels, out_channels=base_channels, kernel_size=3, stride=1, padding=1)
-        )
+        ) # B, 3, H, W => B, 32, H/2, W/2
         self.layer2 = nn.Sequential(
             ConvBNGELU(in_channels=base_channels, out_channels=base_channels*2, kernel_size=3, stride=2, padding=1),
             ConvBNGELU(in_channels=base_channels*2, out_channels=base_channels*2, kernel_size=3, stride=1, padding=1),
             ConvBNGELU(in_channels=base_channels*2, out_channels=base_channels*2, kernel_size=3, stride=1, padding=1)
-        )
+        ) # B, 32, H/2, W/2 => B, 64, H/4, W/4
         self.layer3 = nn.Sequential(
             ConvBNGELU(in_channels=base_channels*2, out_channels=base_channels*4, kernel_size=3, stride=2, padding=1),
             ConvBNGELU(in_channels=base_channels*4, out_channels=base_channels*4, kernel_size=3, stride=1, padding=1),
             ConvBNGELU(in_channels=base_channels*4, out_channels=base_channels*4, kernel_size=3, stride=1, padding=1)
-        )
+        ) # B, 64, H/4, W/4 => B, 128, H/8, W/8
         self.layer4 = nn.Sequential(
             ConvBNGELU(in_channels=base_channels*4, out_channels=base_channels*8, kernel_size=3, stride=2, padding=1),
             ConvBNGELU(in_channels=base_channels*8, out_channels=base_channels*8, kernel_size=3, stride=1, padding=1),
             ConvBNGELU(in_channels=base_channels*8, out_channels=base_channels*8, kernel_size=3, stride=1, padding=1)
-        )
+        ) # B, 128, H/8, W/8 => B, 256, H/16, W/16
 
     def forward(self, x):
         x1 = self.layer1(x)
         x2 = self.layer2(x1)
         x3 = self.layer3(x2)
-        x4 = self.layer4(x3)
+        # x4 = self.layer4(x3)
 
-        return x1, x2, x3, x4
+        return x1, x2, x3
 
-#!!! SAMGuidedCrossAttention
+# !!! SAMGuidedCrossAttention
 class SAMGuidedCrossAttention(nn.Module):
     def __init__(self, dim, heads=4, window_size=8, dropout=0.2):
         super().__init__()
@@ -207,7 +207,7 @@ class SpatialAttention(nn.Module):
 class MultiLevelDeconvFusion(nn.Module):
     def __init__(self, 
                  sam_channels=256,
-                 fpn_channels_list=[32,64,128,256],
+                 fpn_channels_list=[32,64,128],
                  reduction=4,
                  use_bilinear=False):# 是否使用双线性插值替代反卷积
         super().__init__()
@@ -304,27 +304,36 @@ class MultiLevelDeconvFusion(nn.Module):
 
 #!!! ImgEncoder
 class ImgEncoder(nn.Module):
-    def __init__(self, device='cuda', base_channels=32):
+    def __init__(self, device='cuda', base_channels=256):
         super().__init__()
         self.sam = get_model(
-            'vit-base-p16_sam-pre_3rdparty_sa1b-1024px',
-            backbone=dict(out_indices=(2, 5, 8, 11)), 
+            'vit-large-p16_sam-pre_3rdparty_sa1b-1024px',
+            backbone=dict(patch_size=8, out_indices=11, out_channels=-1), # out_indices=(2, 5, 8, 11)
             pretrained=True, 
             device=device)
 
         self.fpn = FPN(base_channels=base_channels)
-
-        self.fusion = MultiLevelDeconvFusion()
+        self.ch_atten = ChannelAttention(in_channels=1024, reduction=16)
+        self.sp_atten = SpatialAttention()
+        self.ss2d = SS2D(channels=1024, depth=4, fusion_method='attention', use_residual=True, diag_mode='none')
 
     def forward(self, x):
         with torch.no_grad():
             self.sam.eval()
             SAM_f = self.sam(x)
-        
         FPN_f = self.fpn(x)
-        FUSION_f = self.fusion(SAM_f, FPN_f)
+        # FUSION_f = torch.cat([SAM_f[-1], FPN_f[-1]], dim=1)
+        FUSION_f = SAM_f[-1]+FPN_f[-1]
 
-        return *FUSION_f, SAM_f[-1] 
+        ch_w = self.ch_atten(FUSION_f)
+        FUSION_f = ch_w * FUSION_f
+
+        sp_w = self.sp_atten(FUSION_f)
+        FUSION_f = sp_w * FUSION_f
+
+        FUSION_f = self.ss2d(FUSION_f)
+
+        return *SAM_f, *FPN_f[0:2], FUSION_f
 
 if __name__ == '__main__':
     import torch
@@ -339,15 +348,17 @@ if __name__ == '__main__':
     for i in y:
         print(i.shape)
 
-# input: [1, 3, 1024, 1024]
-# [B, 768, 64, 64]
-# [B, 768, 64, 64]
-# [B, 768, 64, 64]
-# [B, 768, 64, 64]
+'''
+    model:
+        base
+    input:
+        [1, 3, 448, 448]
+    output:
+        torch.Size([1, 1024, 56, 56]) (SAM_f) if model:base, C=768
 
-# [B, 32, 512, 512]
-# [B, 64, 256, 256]
-# [B, 128, 128, 128]
-# [B, 256, 64, 64]
+        torch.Size([1, 32, 224, 224]) (FPN_f)
+        torch.Size([1, 64, 112, 112])
+        torch.Size([1, 128, 56, 56])
 
-    
+        torch.Size([1, 1024, 56, 56]) (FUSION_f)
+'''

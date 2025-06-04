@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from monai.losses import HausdorffDTLoss, LogHausdorffDTLoss
+from util.cross_entropy_loss import CrossEntropyLoss
+from util.focal_loss import FocalLoss
 
 def dice_score(pred_probs, targets, threshold=0.5, eps=1e-6):
     preds = (pred_probs > threshold).float()
@@ -26,25 +28,25 @@ def iou_score(pred_probs, targets, threshold=0.5, eps=1e-6):
     iou = (intersection + eps) / (union + eps)
     return iou.sum()
 
-class FocalLoss(nn.Module):
-    def __init__(self, alpha: float = 0.25, gamma: float = 2.0, reduction: str = "mean"):
-        super().__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
+# class FocalLoss(nn.Module):
+#     def __init__(self, alpha: float = 0.25, gamma: float = 2.0, reduction: str = "mean"):
+#         super().__init__()
+#         self.alpha = alpha
+#         self.gamma = gamma
+#         self.reduction = reduction
 
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor):
-        bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
-        prob = torch.sigmoid(logits)
-        p_t = targets * prob + (1 - targets) * (1 - prob)
-        modulator = (1 - p_t).pow(self.gamma)
-        loss = self.alpha * modulator * bce_loss
+#     def forward(self, logits: torch.Tensor, targets: torch.Tensor):
+#         bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+#         prob = torch.sigmoid(logits)
+#         p_t = targets * prob + (1 - targets) * (1 - prob)
+#         modulator = (1 - p_t).pow(self.gamma)
+#         loss = self.alpha * modulator * bce_loss
 
-        if self.reduction == "mean":
-            return loss.mean()
-        elif self.reduction == "sum":
-            return loss.sum()
-        return loss
+#         if self.reduction == "mean":
+#             return loss.mean()
+#         elif self.reduction == "sum":
+#             return loss.sum()
+#         return loss
 
 class TverskyLoss(nn.Module):
     def __init__(self,
@@ -112,34 +114,45 @@ class HardNegativeMiningLoss(nn.Module):
         loss = loss_map.sum() / (fp_mask.sum() + self.eps)
         return loss
 
-class CombinedLoss(nn.Module):
-    def __init__(self,
-                alpha_focal: float = 0.3,
-                alpha_tversky: float = 0.4,
-                alpha_boundary: float = 0.2,
-                alpha_hnm: float = 0.1):
-        super().__init__()
-        self.focal       = FocalLoss()
-        self.tversky     = TverskyLoss(alpha=0.3, beta=0.7)
-        self.boundary    = BoundaryLoss()
-        self.hard_negative_mining = HardNegativeMiningLoss()
+# class CombinedLoss(nn.Module):
+#     def __init__(self,
+#                 alpha_focal: float = 0.3,
+#                 alpha_tversky: float = 0.4,
+#                 alpha_boundary: float = 0.2,
+#                 alpha_hnm: float = 0.1):
+#         super().__init__()
+#         self.focal       = FocalLoss()
+#         self.tversky     = TverskyLoss(alpha=0.3, beta=0.7)
+#         self.boundary    = BoundaryLoss()
+#         self.hard_negative_mining = HardNegativeMiningLoss()
 
-        self.alpha_f     = alpha_focal
-        self.alpha_t     = alpha_tversky
-        self.alpha_b     = alpha_boundary
-        self.alpha_hnm   = alpha_hnm
+#         self.alpha_f     = alpha_focal
+#         self.alpha_t     = alpha_tversky
+#         self.alpha_b     = alpha_boundary
+#         self.alpha_hnm   = alpha_hnm
     
 
-    def forward(self, logits, targets):
-        loss_f = self.focal(logits, targets)
-        loss_t = self.tversky(logits, targets)
-        loss_b   = self.boundary(logits, targets)
-        loss_hnm = self.hard_negative_mining(logits, targets)
+#     def forward(self, logits, targets):
+#         loss_f = self.focal(logits, targets)
+#         loss_t = self.tversky(logits, targets)
+#         loss_b   = self.boundary(logits, targets)
+#         loss_hnm = self.hard_negative_mining(logits, targets)
 
-        total = (
-            self.alpha_f   * loss_f +
-            self.alpha_t   * loss_t +
-            self.alpha_b   * loss_b +
-            self.alpha_hnm * loss_hnm
-        )
-        return total
+#         total = (
+#             self.alpha_f   * loss_f +
+#             self.alpha_t   * loss_t +
+#             self.alpha_b   * loss_b +
+#             self.alpha_hnm * loss_hnm
+#         )
+#         return total
+    
+class CombinedLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.ce_loss = CrossEntropyLoss(use_sigmoid=True, loss_weight=0.3, pos_weight=[3.0])
+        self.focal_loss = FocalLoss(loss_weight=0.7)
+
+    def forward(self, pred, target):
+        loss1 = self.ce_loss(pred, target)
+        loss2 = self.focal_loss(pred, target)
+        return loss1 + loss2

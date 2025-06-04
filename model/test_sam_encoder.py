@@ -99,47 +99,56 @@ def preprocess_image(image_path, target_size=448, device='cuda'):
     
     return image_tensor, original_image, original_size, scale
 
-
-
 def visualize_features(features, title=None, figsize=(16, 4), cmap='viridis', 
-                       num_samples=4, show_stats=True, invert=True):
-    if len(features) != 4:
-        raise ValueError(f"Expected 4 features, got {len(features)}")
-    
+                       num_samples=4, show_stats=True, invert=True,
+                       target_sizes=None, interp_mode='bilinear'):
+    num_features = len(features)
+
     if title is None:
-        title = [f"Feature {i+1}" for i in range(4)]
-    elif len(title) != 4:
-        raise ValueError(f"Title list must have length 4, got {len(title)}")
+        title = [f"Feature {i+1}" for i in range(num_features)]
+    elif len(title) != num_features:
+        raise ValueError(f"Title list must have length {num_features}, got {len(title)}")
     
-    # Convert features to numpy
+    if target_sizes is not None and len(target_sizes) != num_features:
+        raise ValueError(f"target_sizes must have length {num_features}, got {len(target_sizes)}")
+
+    # Convert features to numpy (with interpolation if needed)
     features_np = []
-    for feat in features:
-        if isinstance(feat, torch.Tensor):
-            feat = feat.detach().cpu().numpy()
-        features_np.append(feat)
+    for i, feat in enumerate(features):
+        if isinstance(feat, np.ndarray):
+            feat_tensor = torch.from_numpy(feat)
+        elif isinstance(feat, torch.Tensor):
+            feat_tensor = feat.detach().cpu()
+        else:
+            raise TypeError(f"Feature {i} is not a torch.Tensor or np.ndarray.")
 
-    # Determine batch size and shapes
+        if target_sizes is not None and target_sizes[i] is not None:
+            H_target, W_target = target_sizes[i]
+            feat_tensor = F.interpolate(feat_tensor, size=(H_target, W_target), mode=interp_mode, align_corners=False if interp_mode in ['bilinear', 'bicubic'] else None)
+
+        features_np.append(feat_tensor.numpy())
+
+    # Determine batch size
     B = min([f.shape[0] for f in features_np])
-    C_shapes = [f.shape[1] for f in features_np]
-    H_shapes = [f.shape[2] for f in features_np]
-    W_shapes = [f.shape[3] for f in features_np]
-    
     samples = min(B, num_samples)
-    fig, axes = plt.subplots(samples, 4, figsize=figsize)
 
-    # Make axes 2D for consistent indexing if samples=1
+    fig, axes = plt.subplots(samples, num_features, figsize=figsize)
+
     if samples == 1:
         axes = np.expand_dims(axes, axis=0)
+    if num_features == 1:
+        axes = np.expand_dims(axes, axis=1)
 
     for i, feat in enumerate(features_np):
+        C, H, W = feat.shape[1:]
         if show_stats:
             print(f"\n{title[i]} Features:")
             print(f"  Shape: {feat.shape}")
-            print(f"  Channel: {C_shapes[i]}, Size: {H_shapes[i]}x{W_shapes[i]}")
+            print(f"  Channel: {C}, Size: {H}x{W}")
             print(f"  Stats: min={feat.min():.4f}, max={feat.max():.4f}, mean={feat.mean():.4f}")
 
         for s in range(samples):
-            avg_feat = np.mean(feat[s], axis=0)  # [C, H, W] -> [H, W]
+            avg_feat = np.mean(feat[s], axis=0)
             avg_feat_norm = (avg_feat - avg_feat.min()) / (avg_feat.max() - avg_feat.min() + 1e-8)
 
             if invert:
@@ -147,7 +156,7 @@ def visualize_features(features, title=None, figsize=(16, 4), cmap='viridis',
 
             ax = axes[s, i]
             im = ax.imshow(avg_feat_norm, cmap=cmap)
-            ax.set_title(f"{title[i]} (Sample {s+1})")
+            ax.set_title(f"{title[i]} (Sample {s+1})", fontsize=10)
             ax.axis('off')
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
@@ -156,22 +165,22 @@ def visualize_features(features, title=None, figsize=(16, 4), cmap='viridis',
 
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    image_path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/images/CFD_002.jpg"
-    model_type = "vit_b"
-    sam_checkpoint = "/home/swjtu/workspace_01/02-EX_SAM/checkpoints_sam/sam_vit_b_01ec64.pth"
+    image_path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/images/CFD_004.jpg"
+    # model_type = "vit_b"
+    # sam_checkpoint = "/home/swjtu/workspace_01/02-EX_SAM/checkpoints_sam/sam_vit_b_01ec64.pth"
 
     SAM_encoder = get_model(
         'vit-large-p16_sam-pre_3rdparty_sa1b-1024px',
-        backbone=dict(out_indices=(2, 5, 8, 11)), 
+        backbone=dict(patch_size=8, out_indices=(2, 5, 8, 11), out_channels=-1), 
         pretrained=True, 
         device=device)
     
-    print(SAM_encoder)
+    # print(SAM_encoder)
     # SAM = sam_model_registry[model_type](checkpoint=sam_checkpoint)
     
     image_tensor, original_image, original_size, scale = preprocess_image(image_path, target_size=448, device=device)
-
+    print(f'image_tensor:{image_tensor.shape}')
     outputs = SAM_encoder(image_tensor)
     for output in outputs:
-        print(output.shape)
-    visualize_features(outputs, invert=False)
+        print(f'output:{output.shape}')
+    visualize_features(outputs, target_sizes=[(448, 448)]*4, invert=False)

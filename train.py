@@ -9,7 +9,7 @@ from util.datasets import load_data
 from util.train_fun import train_loop
 from util.optimizers import get_optimizer, get_scheduler
 
-from model.segModel import segModel
+from model.img_model import ImgModel
 
 def set_seed(seed: int = 666):
     random.seed(seed) 
@@ -35,7 +35,10 @@ train_loader = load_data(config["dataset"]["root_path"],
                         batch_size = config["dataset"]["batch_size"], 
                         train = True, 
                         shuffle = True,
-                        drop_last = True)
+                        drop_last = True,
+                        num_workers=config["dataset"]["num_workers"],
+                        pin_memory=config["dataset"]["pin_memory"])
+
 test_loader = load_data(config["dataset"]["root_path"], 
                         transforms = None,
                         image_size=config["dataset"]["size"], 
@@ -43,25 +46,18 @@ test_loader = load_data(config["dataset"]["root_path"],
                         batch_size = config["dataset"]["batch_size"], 
                         train = False, 
                         shuffle = False,
-                        drop_last = True)
+                        drop_last = True,
+                        num_workers=1,
+                        pin_memory=config["dataset"]["pin_memory"])
 
 # total_samples = len(dataLoader.dataset)
 # print(f"Total samples: {total_samples}")
 
 # !!! ====== model ======
 set_seed(config["training"]["seed"])
-model = segModel(modeName=config["model"]["mode_name"],
-                use_lora=config["model"]["use_lora"],
-                lora_r=config["model"]["lora_r"], 
-                lora_alpha=config["model"]["lora_alpha"],
-                lora_dropout=config["model"]["lora_dropout"],
-                device=device, 
-                dims=config["model"]["dims"], 
-                num_heads=config["model"]["num_heads"], 
-                num_classes=config["model"]["num_classes"], 
-                out_size=config["dataset"]["size"])
+model = ImgModel(device=device)
 
-print(model)
+# print(model)
 
 # !!! ====== optimizer & lr_scheduler ======
 optimizer = get_optimizer(model, config['training'])
