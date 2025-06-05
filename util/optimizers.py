@@ -28,12 +28,18 @@ def get_scheduler(optimizer, training_cfg, total_steps):
             eta_min=training_cfg.get('eta_min', 1e-6)
         )
     elif sched == 'onecycle':
+        cycle_momentum = True
+        if training_cfg.get('optimizer').lower() == 'adamw':
+            cycle_momentum = False
         return OneCycleLR(
             optimizer,
             max_lr=training_cfg.get('max_lr', training_cfg.get('base_lr', 1e-4)),
             total_steps=total_steps,
             pct_start=training_cfg.get('pct_start', 0.3),
-            anneal_strategy=training_cfg.get('anneal_strategy', 'cos')
+            anneal_strategy=training_cfg.get('anneal_strategy', 'cos'),
+            div_factor=training_cfg.get('div_factor', 10),
+            final_div_factor=training_cfg.get('final_div_factor', 100),
+            cycle_momentum=cycle_momentum
         )
     elif sched == 'plateau':
         return ReduceLROnPlateau(

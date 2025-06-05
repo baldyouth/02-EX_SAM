@@ -8,6 +8,9 @@ import torch.nn.functional as F
 from torchvision.utils import make_grid
 from sam import sam_model_registry
 
+import torchvision.transforms.functional as TF
+import cv2
+
 def visualize_bilinear_two_rows(embeddings, target_size=(32, 32), top_k=6, figsize=(24, 6)):
     if not torch.is_tensor(embeddings):
         embeddings = torch.tensor(embeddings)
@@ -126,7 +129,7 @@ def visualize_features(features, title=None, figsize=(16, 4), cmap='viridis',
             H_target, W_target = target_sizes[i]
             feat_tensor = F.interpolate(feat_tensor, size=(H_target, W_target), mode=interp_mode, align_corners=False if interp_mode in ['bilinear', 'bicubic'] else None)
 
-        features_np.append(feat_tensor.numpy())
+        features_np.append(feat_tensor.to(torch.float16).numpy())
 
     # Determine batch size
     B = min([f.shape[0] for f in features_np])
@@ -171,7 +174,7 @@ if __name__ == '__main__':
 
     SAM_encoder = get_model(
         'vit-large-p16_sam-pre_3rdparty_sa1b-1024px',
-        backbone=dict(patch_size=8, out_indices=(2, 5, 8, 11), out_channels=-1), 
+        backbone=dict(patch_size=8, out_indices=(2, 5, 8, 11), out_channels=256), 
         pretrained=True, 
         device=device)
     

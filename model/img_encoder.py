@@ -315,25 +315,45 @@ class ImgEncoder(nn.Module):
         self.fpn = FPN(base_channels=base_channels)
         self.ch_atten = ChannelAttention(in_channels=1024, reduction=16)
         self.sp_atten = SpatialAttention()
-        self.ss2d = SS2D(channels=1024, depth=4, fusion_method='attention', use_residual=True, diag_mode='none')
+        self.ss2d = SS2D(channels=1024, depth=4, fusion_method='average', use_residual=True, diag_mode='none')
 
-    def forward(self, x):
-        with torch.no_grad():
-            self.sam.eval()
-            SAM_f = self.sam(x)
-        FPN_f = self.fpn(x)
-        # FUSION_f = torch.cat([SAM_f[-1], FPN_f[-1]], dim=1)
-        FUSION_f = SAM_f[-1]+FPN_f[-1]
+    def forward(self, sam_f, x):
+        if sam_f is not None:
+            SAM_f = sam_f
 
-        ch_w = self.ch_atten(FUSION_f)
-        FUSION_f = ch_w * FUSION_f
+            FPN_f = self.fpn(x)
+            # FUSION_f = torch.cat([SAM_f[-1], FPN_f[-1]], dim=1)
+            FUSION_f = SAM_f+FPN_f[-1]
 
-        sp_w = self.sp_atten(FUSION_f)
-        FUSION_f = sp_w * FUSION_f
+            ch_w = self.ch_atten(FUSION_f)
+            FUSION_f = ch_w * FUSION_f
 
-        FUSION_f = self.ss2d(FUSION_f)
+            sp_w = self.sp_atten(FUSION_f)
+            FUSION_f = sp_w * FUSION_f
 
-        return *SAM_f, *FPN_f[0:2], FUSION_f
+            FUSION_f = self.ss2d(FUSION_f)
+
+            return (SAM_f, *FPN_f[0:2], FUSION_f)
+        else:
+            with torch.no_grad():
+                self.sam.eval()
+                SAM_f = self.sam(x)
+
+            FPN_f = self.fpn(x)
+            # FUSION_f = torch.cat([SAM_f[-1], FPN_f[-1]], dim=1)
+            FUSION_f = SAM_f[-1]+FPN_f[-1]
+
+            ch_w = self.ch_atten(FUSION_f)
+            FUSION_f = ch_w * FUSION_f
+
+            sp_w = self.sp_atten(FUSION_f)
+            FUSION_f = sp_w * FUSION_f
+
+            FUSION_f = self.ss2d(FUSION_f)
+
+            return *SAM_f, *FPN_f[0:2], FUSION_f
+
+        
 
 if __name__ == '__main__':
     import torch

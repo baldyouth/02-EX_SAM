@@ -12,8 +12,8 @@ class ImgModel(nn.Module):
         self.encoder = ImgEncoder(device=device)
         self.decoder = ImgDecoder()
 
-    def forward(self, x):
-        feature = self.encoder(x)
+    def forward(self, sam_f, x):
+        feature = self.encoder(sam_f, x)
         out = self.decoder(feature)
 
         return out

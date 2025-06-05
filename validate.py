@@ -93,7 +93,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from ruamel.yaml import YAML
-from model.segModel import segModel
+from model.img_model import ImgModel
 from util.datasets import load_data
 
 # ------------------- 配置读取 -------------------
@@ -107,7 +107,7 @@ print(f'Using device: {device}')
 # 输出目录，以及控制要保存多少样本
 output_dir   = config.get('output_dir', 'outputs/test_vis')
 num_to_save  = config.get('num_to_save', 10)
-mask_thr     = config.get('mask_threshold', 0.5)
+mask_thr     = config.get('mask_threshold', 0)
 
 os.makedirs(output_dir, exist_ok=True)
 print(f'Will save up to {num_to_save} composite images into {output_dir}')
@@ -117,19 +117,9 @@ imagenet_mean = np.array([0.485, 0.456, 0.406])
 imagenet_std  = np.array([0.229, 0.224, 0.225])
 
 # ------------------- 模型加载 -------------------
-model = segModel(
-    modeName     = config["model"]["mode_name"],
-    use_lora     = config["model"]["use_lora"],
-    lora_r       = config["model"]["lora_r"], 
-    lora_alpha   = config["model"]["lora_alpha"],
-    lora_dropout = config["model"]["lora_dropout"],
-    device       = device, 
-    dims         = config["model"]["dims"], 
-    num_heads    = config["model"]["num_heads"], 
-    num_classes  = config["model"]["num_classes"], 
-    out_size     = config["dataset"]["size"]
-)
-ckpt_path = 'checkpoints/20250523_221918/best_model.pth'
+model = ImgModel(device=device)
+
+ckpt_path = 'checkpoints/20250604_211555/epoch_10.pth'
 ckpt = torch.load(ckpt_path, map_location=device)
 model.load_state_dict(ckpt['model'])
 model.to(device).eval()
@@ -153,7 +143,7 @@ with torch.no_grad():
     for images, gt_masks in test_loader:
         images   = images.to(device)            # [B,3,H,W]
         gt_masks = gt_masks.to(device)          # [B,1,H,W]
-        logits, probs = model(images)           # [B,1,H,W] logits & probs
+        logits = model(images)           # [B,1,H,W] logits & probs
         
         B = images.size(0)
         for i in range(B):
@@ -169,8 +159,8 @@ with torch.no_grad():
             gt_np = gt_masks[i,0].cpu().numpy()
 
             # —— 3. 预测 mask（阈值二值化） —— #
-            prob_np = probs[i,0].cpu().numpy()
-            pred_np = (prob_np > mask_thr).astype(np.float32)
+            prob_np = torch.sigmoid(logits[i,0]).cpu().numpy()
+            pred_np = (prob_np > mask_thr).astype(np.float16)
 
             # —— 4. 拼接三图并保存 —— #
             fig, axes = plt.subplots(1, 3, figsize=(12, 4))

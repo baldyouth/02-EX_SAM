@@ -11,7 +11,7 @@ from util.optimizers import get_optimizer, get_scheduler
 
 from model.img_model import ImgModel
 
-def set_seed(seed: int = 666):
+def set_seed(seed: int = 1):
     random.seed(seed) 
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -31,18 +31,17 @@ print(f'Currently using "{device}" device.')
 train_loader = load_data(config["dataset"]["root_path"], 
                         transforms = None,
                         image_size=config["dataset"]["size"], 
-                        device = device, 
                         batch_size = config["dataset"]["batch_size"], 
                         train = True, 
                         shuffle = True,
                         drop_last = True,
                         num_workers=config["dataset"]["num_workers"],
-                        pin_memory=config["dataset"]["pin_memory"])
+                        pin_memory=config["dataset"]["pin_memory"],
+                        is_cache = True)
 
 test_loader = load_data(config["dataset"]["root_path"], 
                         transforms = None,
                         image_size=config["dataset"]["size"], 
-                        device = device, 
                         batch_size = config["dataset"]["batch_size"], 
                         train = False, 
                         shuffle = False,
