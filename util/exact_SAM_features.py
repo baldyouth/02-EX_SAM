@@ -21,8 +21,8 @@ transform = transforms.Compose([
 
 # 路径
 image_dir = '/home/swjtu/workspace_01/data/crack_segmentation_dataset/train/images'
-feature_save_dir = '/home/swjtu/workspace_01/data/crack_segmentation_dataset/train/features'
-os.makedirs(feature_save_dir, exist_ok=True)
+# feature_save_dir = '/home/swjtu/workspace_01/data/crack_segmentation_dataset/train/features'
+# os.makedirs(feature_save_dir, exist_ok=True)
 
 # 模型准备
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -34,7 +34,7 @@ sam = get_model(
 
 image_paths = sorted(glob(os.path.join(image_dir, '*.jpg')))
 for path in tqdm(image_paths):
-    path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/images/CFD_008.jpg"
+    path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/images/DeepCrack_11179-3.jpg"
     image = Image.open(path).convert("RGB")
     image_np = np.array(image)
     tensor_img = torch.as_tensor(image_np).permute(2, 0, 1).float() / 255.0
@@ -65,4 +65,4 @@ for path in tqdm(image_paths):
     plt.show()
 
     basename = os.path.splitext(os.path.basename(path))[0]
-    torch.save(feat.cpu(), os.path.join(feature_save_dir, f'{basename}.pt'))
+    # torch.save(feat.cpu(), os.path.join(feature_save_dir, f'{basename}.pt'))

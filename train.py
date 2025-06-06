@@ -36,8 +36,7 @@ train_loader = load_data(config["dataset"]["root_path"],
                         shuffle = True,
                         drop_last = True,
                         num_workers=config["dataset"]["num_workers"],
-                        pin_memory=config["dataset"]["pin_memory"],
-                        is_cache = True)
+                        pin_memory=config["dataset"]["pin_memory"])
 
 test_loader = load_data(config["dataset"]["root_path"], 
                         transforms = None,
@@ -46,8 +45,7 @@ test_loader = load_data(config["dataset"]["root_path"],
                         train = False, 
                         shuffle = False,
                         drop_last = True,
-                        num_workers=1,
-                        pin_memory=config["dataset"]["pin_memory"])
+                        num_workers=1)
 
 # total_samples = len(dataLoader.dataset)
 # print(f"Total samples: {total_samples}")

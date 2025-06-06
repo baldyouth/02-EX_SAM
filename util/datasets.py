@@ -129,28 +129,21 @@ def load_data(rootPath = '',
               shuffle = True, 
               drop_last = True, 
               num_workers=4,
-              pin_memory=True,
-              is_cache=False):
+              pin_memory=True):
     if train:
         path_images = glob(os.path.join(rootPath, 'train/images') + '/*.jpg')
         path_masks = glob(os.path.join(rootPath, 'train/masks') + '/*.jpg')
-
-        if is_cache:
-            path_features = glob(os.path.join(rootPath, 'train/features') + '/*.pt')
-            path_features = sorted([str(p) for p in path_features])
     else:
         path_images = glob(os.path.join(rootPath, 'test/images') + '/*.jpg')
         path_masks = glob(os.path.join(rootPath, 'test/masks') + '/*.jpg')
     
-    path_images = sorted([str(p) for p in path_images])
-    path_masks = sorted([str(p) for p in path_masks])
+    path_images = sorted([str(p) for p in path_images if 'DeepCrack' in os.path.basename(p)])
+    path_masks  = sorted([str(p) for p in path_masks if 'DeepCrack' in os.path.basename(p)])
+    # path_images = sorted([str(p) for p in path_images])
+    # path_masks = sorted([str(p) for p in path_masks])
 
-    if is_cache:
-        data_df = pd.DataFrame({'images': path_images, 'masks': path_masks, 'features': path_features})
-        data_set = CrackDatasetwithCache(data_df, transforms = transforms, image_size=image_size)
-    else:
-        data_df = pd.DataFrame({'images': path_images, 'masks': path_masks})
-        data_set = CrackDataset(data_df, transforms = transforms, image_size=image_size)
+    data_df = pd.DataFrame({'images': path_images, 'masks': path_masks})
+    data_set = CrackDataset(data_df, transforms = transforms, image_size=image_size)
     
     data_loader = DataLoader(data_set, 
                              batch_size = batch_size, 

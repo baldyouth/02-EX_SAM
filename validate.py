@@ -107,7 +107,7 @@ print(f'Using device: {device}')
 # 输出目录，以及控制要保存多少样本
 output_dir   = config.get('output_dir', 'outputs/test_vis')
 num_to_save  = config.get('num_to_save', 10)
-mask_thr     = config.get('mask_threshold', 0)
+mask_thr     = config.get('mask_threshold', 0.8)
 
 os.makedirs(output_dir, exist_ok=True)
 print(f'Will save up to {num_to_save} composite images into {output_dir}')
@@ -119,23 +119,21 @@ imagenet_std  = np.array([0.229, 0.224, 0.225])
 # ------------------- 模型加载 -------------------
 model = ImgModel(device=device)
 
-ckpt_path = 'checkpoints/20250604_211555/epoch_10.pth'
+ckpt_path = 'checkpoints/20250606_103119/best_model.pth'
 ckpt = torch.load(ckpt_path, map_location=device)
 model.load_state_dict(ckpt['model'])
 model.to(device).eval()
 print(f'Loaded checkpoint from {ckpt_path}')
 
 # ------------------- 数据加载 -------------------
-test_loader = load_data(
-    config["dataset"]["root_path"], 
-    transforms   = None,
-    image_size   = config["dataset"]["size"], 
-    device       = device, 
-    batch_size   = config["dataset"]["batch_size"], 
-    train        = False, 
-    shuffle      = False,
-    drop_last    = False
-)
+test_loader = load_data(config["dataset"]["root_path"], 
+                        transforms = None,
+                        image_size=config["dataset"]["size"], 
+                        batch_size = 1, 
+                        train = False, 
+                        shuffle = False,
+                        drop_last = True,
+                        num_workers=1)
 
 # ------------------- 推理 & 拼图保存 -------------------
 saved_count = 0
@@ -160,7 +158,7 @@ with torch.no_grad():
 
             # —— 3. 预测 mask（阈值二值化） —— #
             prob_np = torch.sigmoid(logits[i,0]).cpu().numpy()
-            pred_np = (prob_np > mask_thr).astype(np.float16)
+            pred_np = (prob_np > mask_thr).astype(np.float32)
 
             # —— 4. 拼接三图并保存 —— #
             fig, axes = plt.subplots(1, 3, figsize=(12, 4))
