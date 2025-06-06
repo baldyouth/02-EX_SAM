@@ -107,7 +107,7 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
 
     total_start_time = time.time()
 
-    # scaler = GradScaler()
+    scaler = GradScaler()
     accumulation_steps = config['training'].get('gradient_accumulation_steps', 1)
 
     try:
@@ -115,40 +115,31 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
             epoch_loss = 0.0
             epoch_steps = 0
 
-            # ====== 虚拟批次修改开始 ======
             num_batches = len(train_dataloader)
             virtual_steps = math.ceil(num_batches / accumulation_steps)
             progress = tqdm(total=virtual_steps, desc=f"Epoch {epoch}")
-            # ====== 虚拟批次修改结束 ======
 
             model.train()
-            optimizer.zero_grad()
 
             for batch_idx, batch in enumerate(train_dataloader):
-                if len(batch) == 3:
-                    inputs, targets, features = batch
-                    inputs = inputs.to(device)
-                    targets = targets.to(device)
-                    features = features.to(device)
-                else:
-                    inputs, targets = batch
-                    inputs = inputs.to(device)
-                    targets = targets.to(device)
-                    features = None
+                inputs, targets = batch
+                inputs = inputs.to(device)
+                targets = targets.to(device)
 
                 with autocast():
-                    logits = model(features, inputs)
+                    logits = model(inputs)
                     loss = criterion(logits, targets)
 
                 loss = loss / accumulation_steps
-                # scaler.scale(loss).backward()
-                loss.backward()
+                # with torch.autograd.detect_anomaly():
+                scaler.scale(loss).backward()
+                # loss.backward()
 
                 # ====== 虚拟批次逻辑：只在累积边界进行更新和进度条 update ======
                 if (batch_idx + 1) % accumulation_steps == 0:
-                    # scaler.step(optimizer)
-                    # scaler.update()
-                    optimizer.step()
+                    scaler.step(optimizer)
+                    scaler.update()
+                    # optimizer.step()
                     optimizer.zero_grad()
 
                     if not is_plateau:
@@ -175,9 +166,9 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
 
             # 处理最后剩余梯度（如果最后 batch 不是 accumulation_steps 的倍数）
             if (batch_idx + 1) % accumulation_steps != 0:
-                # scaler.step(optimizer)
-                # scaler.update()
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
+                # optimizer.step()
                 optimizer.zero_grad()
                 if not is_plateau:
                     lr_scheduler.step()
@@ -186,7 +177,7 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                 current_lr = lr_scheduler.get_last_lr()[0]
                 progress.set_postfix({
                     'global_step': global_step,
-                    'loss': f"last_step",
+                    'loss': loss.item() * accumulation_steps,
                     'lr': f"{current_lr:.8f}"
                 })
 

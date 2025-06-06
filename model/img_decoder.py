@@ -16,7 +16,7 @@ class ConvBNGELU(nn.Module):
 
 #!!! ImgDecoder
 class ImgDecoder(nn.Module):
-    def __init__(self, in_channels=[1024, 512, 256, 128], out_channels=1):
+    def __init__(self, in_channels=[256, 128, 64, 32], out_channels=1):
         super().__init__()
         
         self.up_block1 = nn.Sequential(
@@ -55,10 +55,10 @@ class ImgDecoder(nn.Module):
 
 if __name__ == '__main__':
     input = [
-        torch.rand((1, 1024, 56, 56), device='cuda'),
-        torch.rand((1, 256, 224, 224), device='cuda'),
-        torch.rand((1, 512, 112, 112), device='cuda'),
-        torch.rand((1, 1024, 56, 56), device='cuda')
+        torch.rand((1, 256, 56, 56), device='cuda'),
+        torch.rand((1, 64, 224, 224), device='cuda'),
+        torch.rand((1, 128, 112, 112), device='cuda'),
+        torch.rand((1, 256, 56, 56), device='cuda')
     ]
     model = ImgDecoder().to('cuda')
     output = model(input)
