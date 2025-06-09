@@ -107,7 +107,7 @@ print(f'Using device: {device}')
 # 输出目录，以及控制要保存多少样本
 output_dir   = config.get('output_dir', 'outputs/test_vis')
 num_to_save  = config.get('num_to_save', 10)
-mask_thr     = config.get('mask_threshold', 0.8)
+mask_thr     = config.get('mask_threshold', 0.9)
 
 os.makedirs(output_dir, exist_ok=True)
 print(f'Will save up to {num_to_save} composite images into {output_dir}')
@@ -119,7 +119,7 @@ imagenet_std  = np.array([0.229, 0.224, 0.225])
 # ------------------- 模型加载 -------------------
 model = ImgModel(device=device)
 
-ckpt_path = 'checkpoints/20250606_103119/best_model.pth'
+ckpt_path = 'checkpoints/20250609_145434/best_model.pth'
 ckpt = torch.load(ckpt_path, map_location=device)
 model.load_state_dict(ckpt['model'])
 model.to(device).eval()

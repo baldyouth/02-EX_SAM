@@ -3,6 +3,7 @@ from ruamel.yaml import YAML
 import random
 import numpy as np
 import os
+import math
 
 from model import *
 from util.datasets import load_data
@@ -58,7 +59,7 @@ model = ImgModel(device=device)
 
 # !!! ====== optimizer & lr_scheduler ======
 optimizer = get_optimizer(model, config['training'])
-total_steps = (len(train_loader) * config['training'].get('num_epochs', 100)) // config['training'].get('gradient_accumulation_steps', 1)
+total_steps = math.ceil(len(train_loader) * config['training']['num_epochs'] / config['training']['gradient_accumulation_steps'])
 lr_scheduler = get_scheduler(optimizer, config['training'], total_steps)
 
 # !!! ====== strat train ======
