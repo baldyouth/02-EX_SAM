@@ -4,11 +4,13 @@ import torch
 import torch.nn.functional as F
 import math
 from mmpretrain import get_model
+from peft import LoraConfig, get_peft_model
 
 from mamba_ssm import Mamba
 from mamba_ssm.ops.triton.layer_norm import RMSNorm
 
 from natten import NeighborhoodAttention2D, use_fused_na
+from mmcv.cnn.bricks.transformer import PatchEmbed
 
 use_fused_na()
 
@@ -98,36 +100,35 @@ class AttentionBlock(nn.Module):
 class FPN(nn.Module):
     def __init__(self, in_channels=3, base_channels=64):
         super().__init__()
+        self.layer0 = nn.Sequential(
+            ConvBNGELU(in_channels=3, out_channels=base_channels//2, kernel_size=3, stride=1, padding=1),
+            ConvBNGELU(in_channels=base_channels//2, out_channels=base_channels//2, kernel_size=3, stride=1, padding=1)
+        ) # b, 3, H, W -> b, 32, H, W
         self.layer1 = nn.Sequential(
-            ConvBNGELU(in_channels=in_channels, out_channels=base_channels, kernel_size=3, stride=2, padding=1),
+            ConvBNGELU(in_channels=base_channels//2, out_channels=base_channels, kernel_size=3, stride=2, padding=1),
             ConvBNGELU(in_channels=base_channels, out_channels=base_channels, kernel_size=3, stride=1, padding=1),
             ConvBNGELU(in_channels=base_channels, out_channels=base_channels, kernel_size=3, stride=1, padding=1)
-        ) # B, 3, H, W => B, 32, H/2, W/2
+        ) # b, 32, H, W -> b, 64, H/2, W/2
         self.layer2 = nn.Sequential(
             ConvBNGELU(in_channels=base_channels, out_channels=base_channels*2, kernel_size=3, stride=2, padding=1),
             ConvBNGELU(in_channels=base_channels*2, out_channels=base_channels*2, kernel_size=3, stride=1, padding=1),
             ConvBNGELU(in_channels=base_channels*2, out_channels=base_channels*2, kernel_size=3, stride=1, padding=1)
-        ) # B, 32, H/2, W/2 => B, 64, H/4, W/4
+        ) # b, 64, H/2, W/2 -> b, 128, H/4, W/4
         self.layer3 = nn.Sequential(
             ConvBNGELU(in_channels=base_channels*2, out_channels=base_channels*4, kernel_size=3, stride=2, padding=1),
             ConvBNGELU(in_channels=base_channels*4, out_channels=base_channels*4, kernel_size=3, stride=1, padding=1),
             ConvBNGELU(in_channels=base_channels*4, out_channels=base_channels*4, kernel_size=3, stride=1, padding=1)
-        ) # B, 64, H/4, W/4 => B, 128, H/8, W/8
-        # self.layer4 = nn.Sequential(
-        #     ConvBNGELU(in_channels=base_channels*4, out_channels=base_channels*8, kernel_size=3, stride=2, padding=1),
-        #     ConvBNGELU(in_channels=base_channels*8, out_channels=base_channels*8, kernel_size=3, stride=1, padding=1),
-        #     ConvBNGELU(in_channels=base_channels*8, out_channels=base_channels*8, kernel_size=3, stride=1, padding=1)
-        # ) # B, 128, H/8, W/8 => B, 256, H/16, W/16
+        ) # b, 128, H/4, W/4 -> b, 256, H/8, W/8
 
     def forward(self, x):
-        x1 = self.layer1(x)
+        x0 = self.layer0(x)
+        x1 = self.layer1(x0)
         x2 = self.layer2(x1)
         x3 = self.layer3(x2)
-        # x4 = self.layer4(x3)
 
-        return x1, x2, x3
+        return x0, x1, x2, x3
 
-# !!! SAMGuidedCrossAttention
+#!!! SAMGuidedCrossAttention
 class SAMGuidedCrossAttention(nn.Module):
     def __init__(self, dim, heads=4, window_size=8, dropout=0.2):
         super().__init__()
@@ -173,7 +174,7 @@ class SAMGuidedCrossAttention(nn.Module):
 
         return self.proj(out_w)
 
-# !!! 通道注意力模块
+#!!! 通道注意力模块
 class ChannelAttention(nn.Module):
     def __init__(self, in_channels, reduction=16):
         super().__init__()
@@ -192,9 +193,9 @@ class ChannelAttention(nn.Module):
         out = avg_out + max_out
         return torch.sigmoid(out)
 
-# !!! 空间注意力模块
+#!!! 空间注意力模块
 class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=7):
+    def __init__(self, kernel_size=3):
         super().__init__()
         self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2, bias=False)
         
@@ -205,7 +206,7 @@ class SpatialAttention(nn.Module):
         out = self.conv(out)
         return torch.sigmoid(out)
 
-# !!! MultiLevelDeconvFusion
+#!!! MultiLevelDeconvFusion
 class MultiLevelDeconvFusion(nn.Module):
     def __init__(self, 
                  sam_channels=256,
@@ -304,70 +305,83 @@ class MultiLevelDeconvFusion(nn.Module):
         
         return fused_features
 
-# !!! LoRALinear
+#!!! LoRALinear
 class LoRALinear(nn.Module):
-    def __init__(self, in_features, out_features, r=4, alpha=4.0, dropout=0.1):
+    def __init__(self, in_features, out_features, r=16, alpha=32, dropout=0.1):
         super().__init__()
         self.r = r
         self.alpha = alpha
-        self.scaling = alpha / r
         self.dropout = nn.Dropout(p=dropout) if dropout > 0 else nn.Identity()
+        self.lora_down = nn.Linear(in_features, r, bias=False)
+        self.lora_up = nn.Linear(r, out_features, bias=False)
 
-        self.weight = nn.Parameter(torch.empty(out_features, in_features))
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-
-        # self.lora_A = nn.Parameter(torch.zeros((r, in_features)))
-        # self.lora_B = nn.Parameter(torch.zeros((out_features, r)))
-
-        self.lora_A = nn.Parameter(torch.empty(r, in_features))
-        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
-        self.lora_A.data *= 1e-4  # 缩放权重
-        self.lora_B = nn.Parameter(torch.zeros(out_features, r))
-
-        self.bias = None  # 默认无 bias
+        nn.init.kaiming_uniform_(self.lora_down.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_up.weight)
+        self.scaling = alpha / r
 
     def forward(self, x):
-        out = F.linear(x, self.weight, self.bias)
-        lora_out = F.linear(self.dropout(x), self.lora_A)
-        lora_out = F.linear(lora_out, self.lora_B) * self.scaling
-        return out + lora_out
+        return self.dropout(self.lora_up(self.lora_down(x))) * self.scaling
+    
+#!!! QKVLoRAWrapper
+class QKVLoRAWrapper(nn.Module):
+    def __init__(self, qkv_linear: nn.Linear, r=16, alpha=32, dropout=0.1):
+        super().__init__()
+        self.qkv = qkv_linear
+        self.hidden_dim = qkv_linear.in_features
+        self.total_dim = qkv_linear.out_features
+        assert self.total_dim == 3 * self.hidden_dim
 
-# !!! --- 注入 LoRA 到 SAM ---
-def apply_lora_to_sam(sam_model, r=4, alpha=4.0):
-    for blk in sam_model.backbone.layers:
-        if hasattr(blk.attn, 'qkv') and isinstance(blk.attn.qkv, nn.Linear):
+        self.lora_q = LoRALinear(self.hidden_dim, self.hidden_dim, r, alpha, dropout)
+        self.lora_v = LoRALinear(self.hidden_dim, self.hidden_dim, r, alpha, dropout)
+
+    def forward(self, x):
+        qkv = self.qkv(x)
+        q, k, v = qkv.chunk(3, dim=-1)
+        q = q + self.lora_q(x)
+        v = v + self.lora_v(x)
+        return torch.cat([q, k, v], dim=-1)
+
+#!!! SAMEncoder
+class SAMEncoder(nn.Module):
+    def __init__(self, device='cuda', r=16, alpha=32, dropout=0.1):
+        super().__init__()
+        self.device = device
+        self.r = r
+        self.alpha = alpha
+        self.dropout = dropout
+        self.sam = get_model(
+            'vit-large-p16_sam-pre_3rdparty_sa1b-1024px',
+            backbone=dict(patch_size=8, out_indices=11, out_channels=256), # out_indices=(2, 5, 8, 11)
+            pretrained=True,
+            device=device)
+        self._inject_lora()
+    
+    def _inject_lora(self):
+        for i, blk in enumerate(self.sam.backbone.layers):
             old_qkv = blk.attn.qkv
-            new_qkv = LoRALinear(old_qkv.in_features, old_qkv.out_features, r=r, alpha=alpha)
-            new_qkv.weight.data.copy_(old_qkv.weight.data)
-            blk.attn.qkv = new_qkv
+            blk.attn.qkv = QKVLoRAWrapper(old_qkv, self.r, self.alpha, self.dropout)
 
-    for name, param in sam_model.named_parameters():
-        if 'lora' in name:
-            param.requires_grad = True
-        else:
-            param.requires_grad = False
+    def forward(self, x):
+        return self.sam(x)
+    
+    def set_trainable_params(self):
+        for name, param in self.sam.named_parameters():
+            if 'lora_' in name or "pos_embed" in name or "rel_pos" in name:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
 
 #!!! ImgEncoder
 class ImgEncoder(nn.Module):
     def __init__(self, device='cuda', base_channels=64):
         super().__init__()
-        self.sam = get_model(
-            'vit-large-p16_sam-pre_3rdparty_sa1b-1024px',
-            backbone=dict(patch_size=8, out_indices=11, out_channels=256), # out_indices=(2, 5, 8, 11)
-            pretrained=True, 
-            device=device)
-
+        self.sam = SAMEncoder(device=device, r=16, alpha=32, dropout=0.1)
+        self.sam.set_trainable_params()
+        
         self.fpn = FPN(base_channels=base_channels)
-        self.ch_atten = ChannelAttention(in_channels=256, reduction=16)
+        self.ch_atten = ChannelAttention(in_channels=256, reduction=2)
         self.sp_atten = SpatialAttention()
-        self.ss2d = SS2D(channels=256, depth=4, fusion_method='average', use_residual=True, diag_mode='none')
-
-        # 注入 LoRA
-        apply_lora_to_sam(self.sam, r=4, alpha=4.0)
-
-        # self.sam.eval()
-        # for p in self.sam.parameters():
-        #     p.requires_grad = False
+        self.ss2d = SS2D(channels=256, depth=4, fusion_method='attention', use_residual=True, diag_mode='none')
 
     def forward(self, x):
         
@@ -385,7 +399,7 @@ class ImgEncoder(nn.Module):
 
         FUSION_f = self.ss2d(FUSION_f)
 
-        return *SAM_f, *FPN_f[0:2], FUSION_f
+        return *SAM_f, *FPN_f, FUSION_f
 
 if __name__ == '__main__':
     import torch
@@ -393,6 +407,9 @@ if __name__ == '__main__':
 
     x = torch.rand((1, 3, 448, 448), device=device)
     model = ImgEncoder().to(device)
+    for name, param in model.named_parameters():
+        if 'sam' in name:
+            print(name, param.requires_grad)
     y = model(x)
 
     print()

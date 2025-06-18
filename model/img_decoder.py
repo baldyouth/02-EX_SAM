@@ -19,36 +19,32 @@ class ImgDecoder(nn.Module):
     def __init__(self, in_channels=[256, 128, 64, 32], out_channels=1):
         super().__init__()
         
-        self.up_block1 = nn.Sequential(
-            ConvBNGELU(in_channel=in_channels[0]*2, out_channel=in_channels[0]*2),
+        self.reduction = nn.Sequential(
+            ConvBNGELU(in_channel=in_channels[0]*3, out_channel=in_channels[0]*2),
             ConvBNGELU(in_channel=in_channels[0]*2, out_channel=in_channels[0]),
-            nn.Conv2d(in_channels[0], in_channels[1], kernel_size=1),
+            ConvBNGELU(in_channel=in_channels[0], out_channel=in_channels[1]),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        )
+        self.up_block1 = nn.Sequential(
+            ConvBNGELU(in_channel=in_channels[1]*2, out_channel=in_channels[1]*2),
+            ConvBNGELU(in_channel=in_channels[1]*2, out_channel=in_channels[2]),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         )
         self.up_block2 = nn.Sequential(
-            ConvBNGELU(in_channel=in_channels[1]*2, out_channel=in_channels[1]*2),
-            ConvBNGELU(in_channel=in_channels[1]*2, out_channel=in_channels[1]),
-            nn.Conv2d(in_channels[1], in_channels[2], kernel_size=1),
+            ConvBNGELU(in_channel=in_channels[2]*2, out_channel=in_channels[2]*2),
+            ConvBNGELU(in_channel=in_channels[2]*2, out_channel=in_channels[3]),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         )
         self.up_block3 = nn.Sequential(
-            ConvBNGELU(in_channel=in_channels[2]*2, out_channel=in_channels[2]*2),
-            ConvBNGELU(in_channel=in_channels[2]*2, out_channel=in_channels[2]),
-            nn.Conv2d(in_channels[2], in_channels[3], kernel_size=1),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        )
-        self.up_block4 = nn.Sequential(
-            ConvBNGELU(in_channel=in_channels[3], out_channel=in_channels[3]),
-            ConvBNGELU(in_channel=in_channels[3], out_channel=in_channels[3]),
-            nn.Conv2d(in_channels[3], out_channels, kernel_size=1),
-            ConvBNGELU(in_channel=out_channels, out_channel=out_channels)
+            ConvBNGELU(in_channel=in_channels[3]*2, out_channel=in_channels[3]*2),
+            ConvBNGELU(in_channel=in_channels[3]*2, out_channel=out_channels)
         )
 
     def forward(self, x):
-        up1 = self.up_block1(torch.cat([x[0], x[-1]], dim=1))
-        up2 = self.up_block2(torch.cat([up1, x[2]], dim=1))
-        up3 = self.up_block3(torch.cat([up2, x[1]], dim=1))
-        logit = self.up_block4(up3)
+        de_x1 = self.reduction(torch.cat([x[0], x[4], x[-1]], dim=1))
+        de_x2 = self.up_block1(torch.cat([de_x1, x[3]], dim=1))
+        de_x3 = self.up_block2(torch.cat([de_x2, x[2]], dim=1))
+        logit = self.up_block3(torch.cat([de_x3, x[1]], dim=1))
         # prob = torch.sigmoid(logits)
 
         return logit

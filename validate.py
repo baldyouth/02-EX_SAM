@@ -106,8 +106,8 @@ print(f'Using device: {device}')
 
 # 输出目录，以及控制要保存多少样本
 output_dir   = config.get('output_dir', 'outputs/test_vis')
-num_to_save  = config.get('num_to_save', 10)
-mask_thr     = config.get('mask_threshold', 0.9)
+num_to_save  = config.get('num_to_save', 20)
+mask_thr     = config.get('mask_threshold', 0.54)
 
 os.makedirs(output_dir, exist_ok=True)
 print(f'Will save up to {num_to_save} composite images into {output_dir}')
@@ -119,7 +119,7 @@ imagenet_std  = np.array([0.229, 0.224, 0.225])
 # ------------------- 模型加载 -------------------
 model = ImgModel(device=device)
 
-ckpt_path = 'checkpoints/20250609_145434/best_model.pth'
+ckpt_path = 'checkpoints/20250617_192405/best_model.pth'
 ckpt = torch.load(ckpt_path, map_location=device)
 model.load_state_dict(ckpt['model'])
 model.to(device).eval()
@@ -130,7 +130,7 @@ test_loader = load_data(config["dataset"]["root_path"],
                         transforms = None,
                         image_size=config["dataset"]["size"], 
                         batch_size = 1, 
-                        train = False, 
+                        train = True, 
                         shuffle = False,
                         drop_last = True,
                         num_workers=1)
@@ -139,9 +139,9 @@ test_loader = load_data(config["dataset"]["root_path"],
 saved_count = 0
 with torch.no_grad():
     for images, gt_masks in test_loader:
-        images   = images.to(device)            # [B,3,H,W]
-        gt_masks = gt_masks.to(device)          # [B,1,H,W]
-        logits = model(images)           # [B,1,H,W] logits & probs
+        images   = images.to(device)
+        gt_masks = gt_masks.to(device)
+        logits = model(images)
         
         B = images.size(0)
         for i in range(B):
@@ -166,11 +166,11 @@ with torch.no_grad():
             axes[0].set_title("Image")
             axes[0].axis("off")
 
-            axes[1].imshow(gt_np, cmap="gray", vmin=0, vmax=1)
+            axes[1].imshow(gt_np, cmap="gray")
             axes[1].set_title("GT Mask")
             axes[1].axis("off")
 
-            axes[2].imshow(pred_np, cmap="gray", vmin=0, vmax=1)
+            axes[2].imshow(pred_np, cmap="gray")
             axes[2].set_title("Pred Mask")
             axes[2].axis("off")
 
