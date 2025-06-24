@@ -3,7 +3,7 @@ import torch
 import os
 from datetime import datetime
 from ruamel.yaml import YAML
-from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from Lightning.lightning_module import LitModule
@@ -15,6 +15,7 @@ yaml = YAML()
 with open('config/config_lightning.yaml', 'r') as f:
     config = yaml.load(f)
 
+#TODO
 class IntervalCheckpoint(pl.Callback):
     def __init__(self, save_dir, interval_epochs=50):
         super().__init__()
@@ -40,6 +41,15 @@ class DelayedEarlyStopping(EarlyStopping):
         if trainer.current_epoch < self.min_epochs:
             return
         super().on_validation_end(trainer, pl_module)
+
+#TODO
+checkpoint_callback = ModelCheckpoint(
+        monitor='val_loss',
+        mode='min',
+        save_top_k=1,
+        save_last=True, 
+        filename='{epoch:03d}-{val_loss:.4f}',
+        verbose=True)
 
 def calc_total_training_steps(num_samples, config):
     batch_size = config['data']['batch_size']
@@ -89,7 +99,7 @@ if config['scheduler']['name'].lower() == 'cosine':
     num_samples = len(data_module.train_dataset)
     total_steps = calc_total_training_steps(num_samples=num_samples, config=config)
     config['scheduler']['total_steps'] = total_steps
-    
+
     model = LitModule(optimizer_config=config['optimizer'], scheduler_config=config['scheduler'])
 else:
     model = LitModule(optimizer_config=config['optimizer'], scheduler_config=config['scheduler'])
