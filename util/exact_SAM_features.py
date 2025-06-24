@@ -34,7 +34,7 @@ sam = get_model(
 
 image_paths = sorted(glob(os.path.join(image_dir, '*.jpg')))
 for path in tqdm(image_paths):
-    path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/images/DeepCrack_11179-3.jpg"
+    path = "/home/swjtu/workspace_01/data/crack_segmentation_dataset/images/cracktree200_6198.jpg"
     image = Image.open(path).convert("RGB")
     image_np = np.array(image)
     tensor_img = torch.as_tensor(image_np).permute(2, 0, 1).float() / 255.0

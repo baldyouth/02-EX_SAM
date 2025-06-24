@@ -1,13 +1,8 @@
 import torch
 import torch.nn.functional as F
-from monai.losses import HausdorffDTLoss, LogHausdorffDTLoss
-from util.focal_loss import FocalLoss
 
 from util.cross_entropy_loss import CrossEntropyLoss
 import torch.nn as nn
-
-# HardNegativeMiningLoss
-# LogHausdorffDTLoss
 
 class TverskyLoss(nn.Module):
     def __init__(self, alpha=0.6, beta=0.4, smooth=1e-6):
@@ -98,11 +93,38 @@ class EdgeWeightedLoss(nn.Module):
         loss = F.l1_loss(pred_edge, gt_edge, reduction='none')
         return (loss * weight_map).mean()
 
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=1., dims=(-2, -1)):
+        super(DiceLoss, self).__init__()
+        self.smooth = smooth
+        self.dims = dims
+
+    def forward(self, x, y):
+        tp = (x * y).sum(self.dims)
+        fp = (x * (1 - y)).sum(self.dims)
+        fn = ((1 - x) * y).sum(self.dims)
+        dc = (2 * tp + self.smooth) / (2 * tp + fp + fn + self.smooth)
+        dc = dc.mean()
+
+        return 1 - dc
+
+class bce_dice(nn.Module):
+    def __init__(self):
+        super(bce_dice, self).__init__()
+        # self.bce_fn = nn.BCEWithLogitsLoss()
+        self.bce_fn = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.5)
+        self.dice_fn = DiceLoss()
+
+    def forward(self, y_pred, y_true):
+        bce = self.bce_fn(y_pred, y_true)
+        dice = self.dice_fn(y_pred.sigmoid(), y_true)
+        return 0.87 * bce + 0.13 * dice
+
 class CombinedLoss(nn.Module):
     def __init__(self):
         super().__init__()
         self.ce_loss = CrossEntropyLoss(use_sigmoid=True, loss_weight=1, pos_weight=[5.0])
-        self.tversky_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1)
+        self.tversky_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.5)
         self.edge_loss = EdgeWeightedLoss(mode='sobel')
 
     def forward(self, pred, target):

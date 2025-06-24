@@ -137,8 +137,8 @@ def load_data(rootPath = '',
         path_images = glob(os.path.join(rootPath, 'test/images') + '/*.jpg')
         path_masks = glob(os.path.join(rootPath, 'test/masks') + '/*.jpg')
     
-    path_images = sorted([str(p) for p in path_images if 'DeepCrack' in os.path.basename(p)])
-    path_masks  = sorted([str(p) for p in path_masks if 'DeepCrack' in os.path.basename(p)])
+    path_images = sorted([str(p) for p in path_images if 'CFD' in os.path.basename(p)])
+    path_masks  = sorted([str(p) for p in path_masks if 'CFD' in os.path.basename(p)])
     # path_images = sorted([str(p) for p in path_images])
     # path_masks = sorted([str(p) for p in path_masks])
 

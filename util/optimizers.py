@@ -4,11 +4,18 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, OneCycleLR, Re
 def get_optimizer(model, training_cfg):
     opt = training_cfg.get('optimizer', 'adamw').lower()
     lr = training_cfg.get('base_lr', 1e-3)
+    sam_lr = training_cfg.get('sam_lr', 1e-5)
+    not_sam_lr = training_cfg.get('not_sam_lr', 1e-4)
     wd = training_cfg.get('weight_decay', 1e-4)
+
+    sam_params = [p for n, p in model.named_parameters() if 'sam' in n and p.requires_grad]
+    not_sam_params = [p for n, p in model.named_parameters() if 'sam' not in n and p.requires_grad]
+
     if opt == 'adamw':
-        return torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), 
-                                 lr=lr, 
-                                 weight_decay=wd)
+        return torch.optim.AdamW([
+            {'params': sam_params, 'lr': sam_lr},
+            {'params': not_sam_params, 'lr': not_sam_lr}
+        ], weight_decay=wd)
     elif opt == 'sgd':
         return torch.optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), 
                                lr=lr, 

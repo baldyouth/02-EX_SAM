@@ -149,11 +149,12 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                     epoch_loss += loss.item() * accumulation_steps
                     epoch_steps += 1
 
-                    current_lr = lr_scheduler.get_last_lr()[0]
+                    current_lr = lr_scheduler.get_last_lr()
+                    lr_info = {f"lr_{i}": f"{lr:.8f}" for i, lr in enumerate(current_lr)}
                     progress.set_postfix({
                         'global_step': global_step,
-                        'loss': f"{(loss.item() * accumulation_steps):.4f}",
-                        'lr': f"{current_lr:.8f}"
+                        'loss': f"{(loss.item() * accumulation_steps):.6f}",
+                        **lr_info
                     })
 
                     # 仅在完成一个“虚拟大 batch”时更新进度条
@@ -161,7 +162,8 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
 
                     if (global_step % log_every) == 0:
                         writer.add_scalar('train/loss', loss.item() * accumulation_steps, global_step)
-                        writer.add_scalar('train/lr', current_lr, global_step)
+                        for i, param_group_lr in enumerate(lr_scheduler.get_last_lr()):
+                            writer.add_scalar(f'train/lr_group_{i}', param_group_lr, global_step)
                 # ====== 虚拟批次修改结束 ======
 
             # 处理最后剩余梯度（如果最后 batch 不是 accumulation_steps 的倍数）
@@ -174,11 +176,12 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                     lr_scheduler.step()
                 global_step += 1
 
-                current_lr = lr_scheduler.get_last_lr()[0]
+                current_lr = lr_scheduler.get_last_lr()
+                lr_info = {f"lr_{i}": f"{lr:.8f}" for i, lr in enumerate(current_lr)}
                 progress.set_postfix({
                     'global_step': global_step,
-                    'loss': loss.item() * accumulation_steps,
-                    'lr': f"{current_lr:.8f}"
+                    'loss': f"{(loss.item() * accumulation_steps):.6f}",
+                    **lr_info
                 })
 
                 # 最后一批也算一个“虚拟大 batch”，更新进度条
@@ -204,10 +207,12 @@ def train_loop(config, model, optimizer, train_dataloader, val_dataloader, lr_sc
                         tot += len(tgt)
                 val_loss /= tot
 
-                current_lr = lr_scheduler.get_last_lr()[0]
-                logger.info(f"[VALIDATION] epoch={epoch}, val_loss={val_loss:.4f}")
+                current_lr = lr_scheduler.get_last_lr()
+                lr_info = {f"lr_{i}": f"{lr:.8f}" for i, lr in enumerate(current_lr)}
+                logger.info(f"[VALIDATION] epoch={epoch}, val_loss={val_loss:.6f}")
                 writer.add_scalar('val/loss', val_loss, epoch)
-                writer.add_scalar('val/lr', current_lr, epoch)
+                for i, param_group_lr in enumerate(lr_scheduler.get_last_lr()):
+                            writer.add_scalar(f'train/lr_group_{i}', param_group_lr, global_step)
 
                 if is_plateau:
                     lr_scheduler.step(val_loss)
