@@ -352,7 +352,7 @@ class SAMEncoder(nn.Module):
         self.sam = get_model(
             'vit-large-p16_sam-pre_3rdparty_sa1b-1024px',
             backbone=dict(patch_size=8, out_indices=11, out_channels=256), # out_indices=(2, 5, 8, 11)
-            pretrained=True,
+            pretrained=True, #TODO
             device=device)
         self._inject_lora()
     

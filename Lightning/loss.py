@@ -111,14 +111,16 @@ class DiceLoss(nn.Module):
 class bce_dice(nn.Module):
     def __init__(self):
         super(bce_dice, self).__init__()
-        # self.bce_fn = nn.BCEWithLogitsLoss()
-        self.bce_fn = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1.5)
+        self.bce_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10]))
         self.dice_fn = DiceLoss()
+        self.edge_fn = EdgeWeightedLoss(mode='sobel')
+        #TODO
 
     def forward(self, y_pred, y_true):
         bce = self.bce_fn(y_pred, y_true)
         dice = self.dice_fn(y_pred.sigmoid(), y_true)
-        return 0.87 * bce + 0.13 * dice
+        edge = self.edge_fn(y_pred, y_true)
+        return 0.6 * bce + 0.2 * dice + 0.2 * edge
 
 class CombinedLoss(nn.Module):
     def __init__(self):

@@ -64,7 +64,7 @@ if __name__ == "__main__":
     with open('config/config_lightning.yaml', 'r') as f:
         config = yaml.load(f)
 
-    model = LitModule.load_from_checkpoint("/home/swjtu/workspace_01/02-EX_SAM/checkpoints/20250623_201332/boards/version_0/checkpoints/epoch=299-step=16800.ckpt")
+    model = LitModule.load_from_checkpoint("checkpoints/20250625_153320/epochepoch=079-val_lossval_loss=0.0000.ckpt")
     model.eval()
     model.cuda()
 
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     data_module.setup()
     val_dataloader = data_module.val_dataloader()
 
-    save_dir = "./00-visualizations"
+    save_dir = "./visualizations"
     os.makedirs(save_dir, exist_ok=True)
     save_num = 10
 
@@ -92,5 +92,7 @@ if __name__ == "__main__":
             show=False
         )
 
-        if idx > save_num:
+        if (idx+1) >= save_num:
             break
+
+    print('[DONE]')

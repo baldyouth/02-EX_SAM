@@ -42,15 +42,6 @@ class DelayedEarlyStopping(EarlyStopping):
             return
         super().on_validation_end(trainer, pl_module)
 
-#TODO
-checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
-        mode='min',
-        save_top_k=1,
-        save_last=True, 
-        filename='{epoch:03d}-{val_loss:.4f}',
-        verbose=True)
-
 def calc_total_training_steps(num_samples, config):
     batch_size = config['data']['batch_size']
     accumulate_grad_batches = config['train']['accumulate_grad_batches']
@@ -74,17 +65,35 @@ early_stop = DelayedEarlyStopping(
     min_epochs=config['train']['min_epochs'],
     verbose=True)
 
-# 模型保存
-interval_checkpoint = IntervalCheckpoint(
-    save_dir=unique_dir, 
-    interval_epochs=config['train']['interval_epochs'])
+# 保存
+checkpoint_callbacks = [
+    # 1️⃣ 保存最佳验证集模型
+    ModelCheckpoint(
+        monitor='val_iou',
+        mode='max',
+        save_top_k=1,
+        save_last=True,
+        filename='best-epoch{epoch:03d}',
+        dirpath=unique_dir,
+        verbose=True
+    ),
+    
+    # 2️⃣ 间隔保存模型
+    ModelCheckpoint(
+        save_top_k=-1,  # 保存所有间隔点
+        every_n_epochs=config['train']['interval_epochs'],  # 间隔保存
+        filename='epoch{epoch:03d}',
+        dirpath=unique_dir,
+        verbose=True
+    )
+]
 
 # Trainer配置
 trainer = pl.Trainer(
     logger=logger,
     max_epochs=config['train']['max_epochs'],
     accumulate_grad_batches=config['train']['accumulate_grad_batches'],
-    callbacks=[early_stop, interval_checkpoint],
+    callbacks=[early_stop, *checkpoint_callbacks],
     check_val_every_n_epoch=config['train']['check_val_every_n_epoch'],
     devices=config['train']['devices'],
     accelerator=config['train']['accelerator'],
