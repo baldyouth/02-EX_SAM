@@ -33,16 +33,17 @@ class CosineAnnealingWarmupLR(_LRScheduler):
 
 #!!! module
 class LitModule(pl.LightningModule):
-    def __init__(self, optimizer_config, scheduler_config, *args, **kwargs):
+    def __init__(self, model_config, optimizer_config, scheduler_config, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
 
         # config
+        self.model_config = model_config
         self.optimizer_config = optimizer_config
         self.scheduler_config = scheduler_config
 
         # model
-        self.model = ImgModel()
+        self.model = ImgModel(self.model_config)
 
         # train loss
         # self.ce_loss = CrossEntropyLoss(use_sigmoid=True, loss_weight=1, pos_weight=[5.0]) #TODO

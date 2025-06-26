@@ -1,46 +1,46 @@
 from model.SS2D import SS2D
 import torch.nn as nn
 import torch
-import torch.nn.functional as F
+# import torch.nn.functional as F
 import math
 from mmpretrain import get_model
-from peft import LoraConfig, get_peft_model
+# from peft import LoraConfig, get_peft_model
 
-from mamba_ssm import Mamba
-from mamba_ssm.ops.triton.layer_norm import RMSNorm
+# from mamba_ssm import Mamba
+# from mamba_ssm.ops.triton.layer_norm import RMSNorm
 
-from natten import NeighborhoodAttention2D, use_fused_na
-from mmcv.cnn.bricks.transformer import PatchEmbed
+# from natten import NeighborhoodAttention2D, use_fused_na
+# from mmcv.cnn.bricks.transformer import PatchEmbed
 
-use_fused_na()
+# use_fused_na()
 
-#!!! CrossAttention
-class CrossAttention(nn.Module):
-    def __init__(self, dim, heads, dropout=0.2):
-        super().__init__()
-        self.heads = heads
-        self.scale = (dim // heads) ** -0.5
+# #!!! CrossAttention
+# class CrossAttention(nn.Module):
+#     def __init__(self, dim, heads, dropout=0.2):
+#         super().__init__()
+#         self.heads = heads
+#         self.scale = (dim // heads) ** -0.5
 
-        self.to_q = nn.Linear(dim, dim)
-        self.to_k = nn.Linear(dim, dim)
-        self.to_v = nn.Linear(dim, dim)
-        self.out = nn.Linear(dim, dim)
-        self.dropout = nn.Dropout(dropout)
+#         self.to_q = nn.Linear(dim, dim)
+#         self.to_k = nn.Linear(dim, dim)
+#         self.to_v = nn.Linear(dim, dim)
+#         self.out = nn.Linear(dim, dim)
+#         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, q_feat, kv_feat):
-        B, C, H, W = q_feat.shape
-        q = self.to_q(q_feat.flatten(2).transpose(1, 2))  # (B, HW, C)
-        k = self.to_k(kv_feat.flatten(2).transpose(1, 2))
-        v = self.to_v(kv_feat.flatten(2).transpose(1, 2))
+#     def forward(self, q_feat, kv_feat):
+#         B, C, H, W = q_feat.shape
+#         q = self.to_q(q_feat.flatten(2).transpose(1, 2))  # (B, HW, C)
+#         k = self.to_k(kv_feat.flatten(2).transpose(1, 2))
+#         v = self.to_v(kv_feat.flatten(2).transpose(1, 2))
 
-        q, k, v = map(lambda x: x.view(B, -1, self.heads, C // self.heads).transpose(1, 2), (q, k, v))
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        out = (attn @ v)
+#         q, k, v = map(lambda x: x.view(B, -1, self.heads, C // self.heads).transpose(1, 2), (q, k, v))
+#         attn = (q @ k.transpose(-2, -1)) * self.scale
+#         attn = attn.softmax(dim=-1)
+#         out = (attn @ v)
 
-        out = out.transpose(1, 2).reshape(B, H * W, C)
-        out = self.out(out)
-        return out.transpose(1, 2).reshape(B, C, H, W)
+#         out = out.transpose(1, 2).reshape(B, H * W, C)
+#         out = self.out(out)
+#         return out.transpose(1, 2).reshape(B, C, H, W)
 
 #!!! ConvBNGELU
 class ConvBNGELU(nn.Module):
@@ -55,51 +55,53 @@ class ConvBNGELU(nn.Module):
     def forward(self, x):
         return self.block(x)
 
-#!!! MambaBlock
-class MambaBlock(nn.Module):
-    def __init__(self, dim, depth=8):
-        super().__init__()
-        self.mambalayers = nn.ModuleList([
-            nn.Sequential(
-                Mamba(d_model=dim),
-                RMSNorm(dim)
-            ) for _ in range(depth)
-        ])
+# #!!! MambaBlock
+# class MambaBlock(nn.Module):
+#     def __init__(self, dim, depth=8):
+#         super().__init__()
+#         self.mambalayers = nn.ModuleList([
+#             nn.Sequential(
+#                 Mamba(d_model=dim),
+#                 RMSNorm(dim)
+#             ) for _ in range(depth)
+#         ])
 
-    def forward(self, x):
-        B, C, H, W = x.shape
-        x = x.view(B, C, H * W).permute(0, 2, 1) # B, H*W, C
+#     def forward(self, x):
+#         B, C, H, W = x.shape
+#         x = x.view(B, C, H * W).permute(0, 2, 1) # B, H*W, C
 
-        for mamba_layer in self.mambalayers:
-            x = mamba_layer(x)
-        x = self.rmsnorm(x)
+#         for mamba_layer in self.mambalayers:
+#             x = mamba_layer(x)
+#         x = self.rmsnorm(x)
 
-        x = x.view(B, H, W, C).permute(0, 3, 1, 2)
-        return x
+#         x = x.view(B, H, W, C).permute(0, 3, 1, 2)
+#         return x
 
-#!!! AttentionBlock
-class AttentionBlock(nn.Module):
-    def __init__(self, dim, num_heads, kernel_size=3, depth=2):
-        super().__init__()
-        self.attentionlayers = nn.ModuleList([
-            NeighborhoodAttention2D(dim=dim, num_heads=num_heads, kernel_size=kernel_size) for _ in range(depth)
-        ])
-        self.lnnorm = nn.LayerNorm(dim)
+# #!!! AttentionBlock
+# class AttentionBlock(nn.Module):
+#     def __init__(self, dim, num_heads, kernel_size=3, depth=2):
+#         super().__init__()
+#         self.attentionlayers = nn.ModuleList([
+#             NeighborhoodAttention2D(dim=dim, num_heads=num_heads, kernel_size=kernel_size) for _ in range(depth)
+#         ])
+#         self.lnnorm = nn.LayerNorm(dim)
 
-    def forward(self, x):
-        x = x.permute(0, 2, 3, 1) # BHWC
+#     def forward(self, x):
+#         x = x.permute(0, 2, 3, 1) # BHWC
 
-        for attn_layer in self.attentionlayers:
-            x = attn_layer(x)
+#         for attn_layer in self.attentionlayers:
+#             x = attn_layer(x)
         
-        x = self.lnnorm(x)
-        x = x.permute(0, 3, 1, 2) #BCHW
-        return x
+#         x = self.lnnorm(x)
+#         x = x.permute(0, 3, 1, 2) #BCHW
+#         return x
 
 #!!! FPN
 class FPN(nn.Module):
-    def __init__(self, in_channels=3, base_channels=64):
+    def __init__(self, FPN_config):
         super().__init__()
+        base_channels = FPN_config['base_channels']
+
         self.layer0 = nn.Sequential(
             ConvBNGELU(in_channels=3, out_channels=base_channels//2, kernel_size=3, stride=1, padding=1),
             ConvBNGELU(in_channels=base_channels//2, out_channels=base_channels//2, kernel_size=3, stride=1, padding=1)
@@ -128,51 +130,51 @@ class FPN(nn.Module):
 
         return x0, x1, x2, x3
 
-#!!! SAMGuidedCrossAttention
-class SAMGuidedCrossAttention(nn.Module):
-    def __init__(self, dim, heads=4, window_size=8, dropout=0.2):
-        super().__init__()
-        self.heads = heads
-        self.scale = (dim // heads) ** -0.5
-        self.window_size = window_size
+# #!!! SAMGuidedCrossAttention
+# class SAMGuidedCrossAttention(nn.Module):
+#     def __init__(self, dim, heads=4, window_size=8, dropout=0.2):
+#         super().__init__()
+#         self.heads = heads
+#         self.scale = (dim // heads) ** -0.5
+#         self.window_size = window_size
 
-        self.to_q = nn.Conv2d(dim, dim, 1)
-        self.to_k = nn.Conv2d(dim, dim, 1)
-        self.to_v = nn.Conv2d(dim, dim, 1)
-        self.proj = nn.Conv2d(dim, dim, 1)
-        self.dropout = nn.Dropout(dropout)
+#         self.to_q = nn.Conv2d(dim, dim, 1)
+#         self.to_k = nn.Conv2d(dim, dim, 1)
+#         self.to_v = nn.Conv2d(dim, dim, 1)
+#         self.proj = nn.Conv2d(dim, dim, 1)
+#         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, q_feat, kv_feat):
-        B, C, H, W = q_feat.shape
-        ws = self.window_size
-        assert H % ws == 0 and W % ws == 0, "Input must be divisible by window size"
+#     def forward(self, q_feat, kv_feat):
+#         B, C, H, W = q_feat.shape
+#         ws = self.window_size
+#         assert H % ws == 0 and W % ws == 0, "Input must be divisible by window size"
 
-        # Linear proj
-        q = self.to_q(q_feat)
-        k = self.to_k(kv_feat)
-        v = self.to_v(kv_feat)
+#         # Linear proj
+#         q = self.to_q(q_feat)
+#         k = self.to_k(kv_feat)
+#         v = self.to_v(kv_feat)
 
-        # [B, heads, C//heads, H, W]
-        def reshape_to_windows(x):
-            x = x.view(B, self.heads, C // self.heads, H, W)
-            x = x.unfold(3, ws, ws).unfold(4, ws, ws)  # [B, h, c, h/ws, w/ws, ws, ws]
-            x = x.permute(0, 3, 4, 1, 5, 6, 2).contiguous()  # [B, h/ws, w/ws, heads, ws, ws, c']
-            return x.view(-1, self.heads, ws * ws, C // self.heads)  # [B*num_windows, heads, win_len, c']
+#         # [B, heads, C//heads, H, W]
+#         def reshape_to_windows(x):
+#             x = x.view(B, self.heads, C // self.heads, H, W)
+#             x = x.unfold(3, ws, ws).unfold(4, ws, ws)  # [B, h, c, h/ws, w/ws, ws, ws]
+#             x = x.permute(0, 3, 4, 1, 5, 6, 2).contiguous()  # [B, h/ws, w/ws, heads, ws, ws, c']
+#             return x.view(-1, self.heads, ws * ws, C // self.heads)  # [B*num_windows, heads, win_len, c']
 
-        q_w = reshape_to_windows(q)
-        k_w = reshape_to_windows(k)
-        v_w = reshape_to_windows(v)
+#         q_w = reshape_to_windows(q)
+#         k_w = reshape_to_windows(k)
+#         v_w = reshape_to_windows(v)
 
-        attn = (q_w @ k_w.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        out_w = (attn @ v_w)  # [B*num_win, heads, win_len, c']
+#         attn = (q_w @ k_w.transpose(-2, -1)) * self.scale
+#         attn = attn.softmax(dim=-1)
+#         out_w = (attn @ v_w)  # [B*num_win, heads, win_len, c']
 
-        # reshape back
-        out_w = out_w.view(B, H // ws, W // ws, self.heads, ws, ws, C // self.heads)
-        out_w = out_w.permute(0, 3, 6, 1, 4, 2, 5).contiguous()  # [B, heads, c', h/ws, ws, w/ws, ws]
-        out_w = out_w.view(B, C, H, W)
+#         # reshape back
+#         out_w = out_w.view(B, H // ws, W // ws, self.heads, ws, ws, C // self.heads)
+#         out_w = out_w.permute(0, 3, 6, 1, 4, 2, 5).contiguous()  # [B, heads, c', h/ws, ws, w/ws, ws]
+#         out_w = out_w.view(B, C, H, W)
 
-        return self.proj(out_w)
+#         return self.proj(out_w)
 
 #!!! 通道注意力模块
 class ChannelAttention(nn.Module):
@@ -207,103 +209,103 @@ class SpatialAttention(nn.Module):
         return torch.sigmoid(out)
 
 #!!! MultiLevelDeconvFusion
-class MultiLevelDeconvFusion(nn.Module):
-    def __init__(self, 
-                 sam_channels=256,
-                 fpn_channels_list=[32,64,128],
-                 reduction=4,
-                 use_bilinear=False):# 是否使用双线性插值替代反卷积
-        super().__init__()
+# class MultiLevelDeconvFusion(nn.Module):
+#     def __init__(self, 
+#                  sam_channels=256,
+#                  fpn_channels_list=[32,64,128],
+#                  reduction=4,
+#                  use_bilinear=False):# 是否使用双线性插值替代反卷积
+#         super().__init__()
         
-        self.fpn_levels = len(fpn_channels_list)
-        self.use_bilinear = use_bilinear
+#         self.fpn_levels = len(fpn_channels_list)
+#         self.use_bilinear = use_bilinear
         
-        self.deconv_modules = nn.ModuleList()
-        self.channel_attn_modules = nn.ModuleList()
-        self.spatial_attn_modules = nn.ModuleList()
-        self.fusion_conv_modules = nn.ModuleList()
+#         self.deconv_modules = nn.ModuleList()
+#         self.channel_attn_modules = nn.ModuleList()
+#         self.spatial_attn_modules = nn.ModuleList()
+#         self.fusion_conv_modules = nn.ModuleList()
         
-        for i in range(self.fpn_levels):
-            # 计算需要的反卷积次数和步长
-            scale_factor = 2 ** (self.fpn_levels - i - 1) # [8, 4, 2, 1]
+#         for i in range(self.fpn_levels):
+#             # 计算需要的反卷积次数和步长
+#             scale_factor = 2 ** (self.fpn_levels - i - 1) # [8, 4, 2, 1]
             
-            if use_bilinear: # 使用双线性插值+卷积
-                deconv_module = nn.Sequential(
-                    nn.Upsample(scale_factor=scale_factor, mode='bilinear', align_corners=False),
-                    nn.Conv2d(sam_channels, fpn_channels_list[i], kernel_size=1),
-                    nn.BatchNorm2d(fpn_channels_list[i]),
-                    nn.ReLU(inplace=True)
-                )
-            else: # 使用多级反卷积
-                deconv_layers = []
-                current_channels = sam_channels
+#             if use_bilinear: # 使用双线性插值+卷积
+#                 deconv_module = nn.Sequential(
+#                     nn.Upsample(scale_factor=scale_factor, mode='bilinear', align_corners=False),
+#                     nn.Conv2d(sam_channels, fpn_channels_list[i], kernel_size=1),
+#                     nn.BatchNorm2d(fpn_channels_list[i]),
+#                     nn.ReLU(inplace=True)
+#                 )
+#             else: # 使用多级反卷积
+#                 deconv_layers = []
+#                 current_channels = sam_channels
                 
-                # 逐级反卷积
-                while scale_factor > 1:
-                    # 每次反卷积缩小一半
-                    deconv_layers.append(nn.ConvTranspose2d(
-                        current_channels, current_channels//2, 
-                        kernel_size=4, stride=2, padding=1
-                    ))
-                    deconv_layers.append(nn.BatchNorm2d(current_channels//2))
-                    deconv_layers.append(nn.GELU())
-                    current_channels = current_channels // 2
-                    scale_factor = scale_factor // 2
+#                 # 逐级反卷积
+#                 while scale_factor > 1:
+#                     # 每次反卷积缩小一半
+#                     deconv_layers.append(nn.ConvTranspose2d(
+#                         current_channels, current_channels//2, 
+#                         kernel_size=4, stride=2, padding=1
+#                     ))
+#                     deconv_layers.append(nn.BatchNorm2d(current_channels//2))
+#                     deconv_layers.append(nn.GELU())
+#                     current_channels = current_channels // 2
+#                     scale_factor = scale_factor // 2
                 
-                # 调整最终通道数与FPN层匹配
-                deconv_layers.append(nn.Conv2d(current_channels, fpn_channels_list[i], kernel_size=1))
-                deconv_layers.append(nn.BatchNorm2d(fpn_channels_list[i]))
-                deconv_layers.append(nn.GELU())
+#                 # 调整最终通道数与FPN层匹配
+#                 deconv_layers.append(nn.Conv2d(current_channels, fpn_channels_list[i], kernel_size=1))
+#                 deconv_layers.append(nn.BatchNorm2d(fpn_channels_list[i]))
+#                 deconv_layers.append(nn.GELU())
                 
-                deconv_module = nn.Sequential(*deconv_layers)
+#                 deconv_module = nn.Sequential(*deconv_layers)
             
-            # 通道注意力模块
-            channel_attn = ChannelAttention(fpn_channels_list[i]*2, reduction)
+#             # 通道注意力模块
+#             channel_attn = ChannelAttention(fpn_channels_list[i]*2, reduction)
             
-            # 空间注意力模块
-            spatial_attn = SpatialAttention()
+#             # 空间注意力模块
+#             spatial_attn = SpatialAttention()
             
-            # 融合卷积
-            # fusion_conv = nn.Sequential(
-            #     nn.Conv2d(fpn_channels_list[i]*2, fpn_channels_list[i], kernel_size=3, padding=1),
-            #     nn.BatchNorm2d(fpn_channels_list[i]),
-            #     nn.ReLU(inplace=True)
-            # )
-            # fusion_conv = ConvBNGELU(in_channels=fpn_channels_list[i]*2, out_channels=fpn_channels_list[i], kernel_size=3, stride=1, padding=1)
-            fusion_conv = nn.Sequential(
-                SS2D(fpn_channels_list[i]*2, depth=2, fusion_method='attention', diag_mode='none'),
-                ConvBNGELU(in_channels=fpn_channels_list[i]*2, out_channels=fpn_channels_list[i], kernel_size=3, stride=1, padding=1)
-            )
+#             # 融合卷积
+#             # fusion_conv = nn.Sequential(
+#             #     nn.Conv2d(fpn_channels_list[i]*2, fpn_channels_list[i], kernel_size=3, padding=1),
+#             #     nn.BatchNorm2d(fpn_channels_list[i]),
+#             #     nn.ReLU(inplace=True)
+#             # )
+#             # fusion_conv = ConvBNGELU(in_channels=fpn_channels_list[i]*2, out_channels=fpn_channels_list[i], kernel_size=3, stride=1, padding=1)
+#             fusion_conv = nn.Sequential(
+#                 SS2D(fpn_channels_list[i]*2, depth=2, fusion_method='attention', diag_mode='none'),
+#                 ConvBNGELU(in_channels=fpn_channels_list[i]*2, out_channels=fpn_channels_list[i], kernel_size=3, stride=1, padding=1)
+#             )
             
-            self.deconv_modules.append(deconv_module)
-            self.channel_attn_modules.append(channel_attn)
-            self.spatial_attn_modules.append(spatial_attn)
-            self.fusion_conv_modules.append(fusion_conv)
+#             self.deconv_modules.append(deconv_module)
+#             self.channel_attn_modules.append(channel_attn)
+#             self.spatial_attn_modules.append(spatial_attn)
+#             self.fusion_conv_modules.append(fusion_conv)
     
-    def forward(self, sam_features, fpn_features):
-        fused_features = []
+#     def forward(self, sam_features, fpn_features):
+#         fused_features = []
         
-        for i in range(self.fpn_levels):
-            # 1. 多级反卷积上采样SAM特征
-            upsampled_sam = self.deconv_modules[i](sam_features[i])
+#         for i in range(self.fpn_levels):
+#             # 1. 多级反卷积上采样SAM特征
+#             upsampled_sam = self.deconv_modules[i](sam_features[i])
             
-            # 2. 特征拼接
-            concat_feature = torch.cat([fpn_features[i], upsampled_sam], dim=1)
+#             # 2. 特征拼接
+#             concat_feature = torch.cat([fpn_features[i], upsampled_sam], dim=1)
             
-            # 3. 应用通道注意力
-            channel_weight = self.channel_attn_modules[i](concat_feature)
-            channel_enhanced = concat_feature * channel_weight
+#             # 3. 应用通道注意力
+#             channel_weight = self.channel_attn_modules[i](concat_feature)
+#             channel_enhanced = concat_feature * channel_weight
             
-            # 4. 应用空间注意力
-            spatial_weight = self.spatial_attn_modules[i](channel_enhanced)
-            spatial_enhanced = channel_enhanced * spatial_weight
+#             # 4. 应用空间注意力
+#             spatial_weight = self.spatial_attn_modules[i](channel_enhanced)
+#             spatial_enhanced = channel_enhanced * spatial_weight
             
-            # 5. 最终融合卷积
-            fused = self.fusion_conv_modules[i](spatial_enhanced)
+#             # 5. 最终融合卷积
+#             fused = self.fusion_conv_modules[i](spatial_enhanced)
             
-            fused_features.append(fused)
+#             fused_features.append(fused)
         
-        return fused_features
+#         return fused_features
 
 #!!! LoRALinear
 class LoRALinear(nn.Module):
@@ -343,17 +345,22 @@ class QKVLoRAWrapper(nn.Module):
 
 #!!! SAMEncoder
 class SAMEncoder(nn.Module):
-    def __init__(self, device='cuda', r=16, alpha=32, dropout=0.1):
+    def __init__(self, LoRA_config, SAM_config):
         super().__init__()
-        self.device = device
-        self.r = r
-        self.alpha = alpha
-        self.dropout = dropout
+        self.r = LoRA_config['r']
+        self.alpha = LoRA_config['alpha']
+        self.dropout = LoRA_config['dropout']
+
         self.sam = get_model(
-            'vit-large-p16_sam-pre_3rdparty_sa1b-1024px',
-            backbone=dict(patch_size=8, out_indices=11, out_channels=256), # out_indices=(2, 5, 8, 11)
-            pretrained=True, #TODO
-            device=device)
+            model=SAM_config['name'],
+            backbone=dict(
+                img_size=SAM_config['img_size'],
+                patch_size=SAM_config['patch_size'],
+                window_size=SAM_config['window_size'],
+                out_indices=SAM_config['out_indices'], 
+                out_channels=SAM_config['out_channels']), # out_indices=(2, 5, 8, 11)
+            pretrained=SAM_config['pretrained'])
+            # device=device
         self._inject_lora()
     
     def _inject_lora(self):
@@ -373,15 +380,16 @@ class SAMEncoder(nn.Module):
 
 #!!! ImgEncoder
 class ImgEncoder(nn.Module):
-    def __init__(self, device='cuda', base_channels=64):
+    def __init__(self, model_config):
         super().__init__()
-        self.sam = SAMEncoder(device=device, r=16, alpha=32, dropout=0.1)
+
+        self.sam = SAMEncoder(LoRA_config=model_config['LoRA'], SAM_config=model_config['SAM'])
         self.sam.set_trainable_params()
         
-        self.fpn = FPN(base_channels=base_channels)
-        self.ch_atten = ChannelAttention(in_channels=256, reduction=2)
-        self.sp_atten = SpatialAttention()
-        self.ss2d = SS2D(channels=256, depth=4, fusion_method='attention', use_residual=True, diag_mode='none')
+        self.fpn = FPN(FPN_config=model_config['FPN'])
+        self.ch_atten = ChannelAttention(in_channels=256, reduction=2) #TODO 多尺度
+        self.sp_atten = SpatialAttention() #TODO 多尺度
+        self.ss2d = SS2D(SS2D_config=model_config['SS2D'])
 
     def forward(self, x):
         

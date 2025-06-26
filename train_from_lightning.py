@@ -73,7 +73,7 @@ checkpoint_callbacks = [
         mode='max',
         save_top_k=1,
         save_last=True,
-        filename='best-epoch{epoch:03d}',
+        filename='best-{epoch:03d}',
         dirpath=unique_dir,
         verbose=True
     ),
@@ -82,7 +82,7 @@ checkpoint_callbacks = [
     ModelCheckpoint(
         save_top_k=-1,  # 保存所有间隔点
         every_n_epochs=config['train']['interval_epochs'],  # 间隔保存
-        filename='epoch{epoch:03d}',
+        filename='{epoch:03d}',
         dirpath=unique_dir,
         verbose=True
     )
@@ -109,9 +109,13 @@ if config['scheduler']['name'].lower() == 'cosine':
     total_steps = calc_total_training_steps(num_samples=num_samples, config=config)
     config['scheduler']['total_steps'] = total_steps
 
-    model = LitModule(optimizer_config=config['optimizer'], scheduler_config=config['scheduler'])
+    model = LitModule(model_config=config['model'], 
+                      optimizer_config=config['optimizer'], 
+                      scheduler_config=config['scheduler'])
 else:
-    model = LitModule(optimizer_config=config['optimizer'], scheduler_config=config['scheduler'])
+    model = LitModule(model_config=config['model'], 
+                      optimizer_config=config['optimizer'], 
+                      scheduler_config=config['scheduler'])
 
 # 训练启动
 trainer.fit(model, datamodule=data_module)

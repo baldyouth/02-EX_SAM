@@ -28,15 +28,22 @@ class CrackDataset(Dataset):
     def __getitem__(self, idx):
         img_path = os.path.join(self.img_dir, self.image_names[idx])
         mask_path = os.path.join(self.mask_dir, self.image_names[idx])
+        if not os.path.exists(mask_path):
+            mask_path = os.path.join(self.mask_dir, self.image_names[idx].split('.')[0] + '.png')
 
         image = cv2.imread(img_path)
+        if image is None:
+            raise FileNotFoundError(f"Image not found: {img_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            raise FileNotFoundError(f"Mask not found: {mask_path}")
 
         if self.transform:
             augmented = self.transform(image=image, mask=mask)
             image = augmented['image']
             mask = (augmented['mask'] > 127).float().unsqueeze(0)
+        #TODO self.transform==None
 
         return image, mask
 
@@ -51,6 +58,7 @@ class CrackDataModule(pl.LightningDataModule):
         self.val_filter_keywords = data_config['val_filter_keywords']
 
         self.sam_transform = A.Compose([
+            A.Resize(height=448, width=448),
             A.Normalize(mean=[0.485, 0.456, 0.406],
                         std=[0.229, 0.224, 0.225]), # Normalize 自动转成 float32 并除以255 → [0,1], 再减去均值，除以标准差
             ToTensorV2()
@@ -88,11 +96,19 @@ if __name__ == '__main__':
 
     import matplotlib.pyplot as plt
 
-    data_module = CrackDataModule(data_root="/home/swjtu/workspace_01/data/crack_segmentation_dataset", batch_size=1)
+    config = {
+        'data_root': '/home/swjtu/workspace_01/data/DeepCrack',
+        'batch_size': 1,
+        'num_workers': 8,
+        'train_filter_keywords': None,
+        'val_filter_keywords': None
+    }
+
+    data_module = CrackDataModule(data_config=config)
     data_module.setup()
     dataset = data_module.train_dataset
 
-    img, mask = dataset[0]
+    img, mask = dataset[3]
     print(img.shape, mask.shape)
     print(img.shape, img.dtype)
     print(mask.shape, mask.dtype)
@@ -102,6 +118,7 @@ if __name__ == '__main__':
     img_np = denormalize(img, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     mask_np = mask.squeeze(0).numpy()
 
+    plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
     plt.imshow(img_np)  # [C,H,W] -> [H,W,C]
     plt.title("Augmented Image")

@@ -2,6 +2,7 @@ import os
 import torch
 import matplotlib.pyplot as plt
 from ruamel.yaml import YAML
+from torchmetrics.classification import BinaryJaccardIndex
 
 from Lightning.lightning_module import LitModule
 from Lightning.datamodule import CrackDataModule
@@ -64,7 +65,11 @@ if __name__ == "__main__":
     with open('config/config_lightning.yaml', 'r') as f:
         config = yaml.load(f)
 
-    model = LitModule.load_from_checkpoint("checkpoints/20250625_153320/epochepoch=079-val_lossval_loss=0.0000.ckpt")
+    model = LitModule.load_from_checkpoint(
+        checkpoint_path="checkpoints/20250626_151041/best-epoch=279.ckpt",
+        model_config=config['model'],
+        optimizer_config=config['optimizer'],
+        scheduler_config=config['scheduler'])
     model.eval()
     model.cuda()
 
@@ -75,14 +80,25 @@ if __name__ == "__main__":
     save_dir = "./visualizations"
     os.makedirs(save_dir, exist_ok=True)
     save_num = 10
+    threshold = 0.5
+
+    jaccard_metric = BinaryJaccardIndex().to('cuda')
+    total_iou = 0
+    iou_count = 0
 
     for idx, (img, mask) in enumerate(val_dataloader):
         img = img.cuda()
+        mask = mask.cuda()
 
         with torch.no_grad():
             logits = model(img)
             preds = torch.sigmoid(logits)
-            preds = (preds > 0.5).float()
+            preds = (preds > threshold).float()
+        
+        iou = jaccard_metric(preds, mask)
+        print(f'{idx+1} IoU: {iou.item():.4f}')
+        total_iou += iou.item()
+        iou_count += 1
 
         visualize_and_save(
             img_tensor=img[0],
@@ -94,5 +110,8 @@ if __name__ == "__main__":
 
         if (idx+1) >= save_num:
             break
+    
+    avg_iou = total_iou / iou_count if iou_count > 0 else 0
+    print(f"Average IoU: {avg_iou:.4f}")
 
     print('[DONE]')

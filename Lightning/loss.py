@@ -3,6 +3,7 @@ import torch.nn.functional as F
 
 from util.cross_entropy_loss import CrossEntropyLoss
 import torch.nn as nn
+from torchvision.ops import sigmoid_focal_loss
 
 class TverskyLoss(nn.Module):
     def __init__(self, alpha=0.6, beta=0.4, smooth=1e-6):
@@ -108,19 +109,34 @@ class DiceLoss(nn.Module):
 
         return 1 - dc
 
+def binary_dice_loss(pred, target, valid_mask, smooth=1, exponent=2, **kwards):
+    assert pred.shape[0] == target.shape[0]
+    pred = pred.contiguous().view(pred.shape[0], -1)
+    target = target.contiguous().view(target.shape[0], -1)
+    valid_mask = valid_mask.contiguous().view(valid_mask.shape[0], -1)
+
+    num = torch.sum(torch.mul(pred, target) * valid_mask, dim=1) * 2 + smooth
+    den = torch.sum(pred.pow(exponent) + target.pow(exponent), dim=1) + smooth
+
+    return 1 - (num / den).mean()
+
 class bce_dice(nn.Module):
     def __init__(self):
         super(bce_dice, self).__init__()
-        self.bce_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10]))
+        self.bce_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([5]))
         self.dice_fn = DiceLoss()
         self.edge_fn = EdgeWeightedLoss(mode='sobel')
-        #TODO
 
     def forward(self, y_pred, y_true):
-        bce = self.bce_fn(y_pred, y_true)
-        dice = self.dice_fn(y_pred.sigmoid(), y_true)
+        # bce = self.bce_fn(y_pred, y_true)
+        focal = sigmoid_focal_loss(y_pred, y_true, alpha=0.25, gamma=2, reduction='mean') #TODO:try
+
+        # dice = self.dice_fn(y_pred.sigmoid(), y_true)
+        dice = binary_dice_loss(y_pred, y_true, valid_mask=(y_true != 0).float()) #TODO:try
+
         edge = self.edge_fn(y_pred, y_true)
-        return 0.6 * bce + 0.2 * dice + 0.2 * edge
+        
+        return 0.6 * focal + 0.2 * dice + 0.2 * edge
 
 class CombinedLoss(nn.Module):
     def __init__(self):

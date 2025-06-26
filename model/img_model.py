@@ -6,10 +6,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class ImgModel(nn.Module):
-    def __init__(self, device='cuda', *args, **kwargs):
+    def __init__(self, model_config, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.encoder = ImgEncoder(device=device)
+        self.encoder = ImgEncoder(model_config)
         self.decoder = ImgDecoder()
 
     def forward(self, x):
