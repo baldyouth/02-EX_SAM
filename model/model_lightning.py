@@ -174,18 +174,20 @@ class MultiScaleConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
 
-        self.reduction = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
-        self.conv3x3 = nn.Conv2d(in_channels=in_channels*2, out_channels=out_channels, kernel_size=3, padding=1, stride=1)
-        self.conv5x5 = nn.Conv2d(in_channels=in_channels*2, out_channels=out_channels, kernel_size=5, padding=2, stride=1)
-        self.conv7x7 = nn.Conv2d(in_channels=in_channels*2, out_channels=out_channels, kernel_size=7, padding=3, stride=1)
-        self.fusion = nn.Conv2d(in_channels=in_channels*3, out_channels=out_channels, kernel_size=1)
+        self.reduction = nn.Conv2d(in_channels=in_channels*2, out_channels=out_channels, kernel_size=1)
+        self.conv1x1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
+        self.conv3x3 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1, stride=1)
+        self.conv5x5 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=5, padding=2, stride=1)
+        self.conv7x7 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=7, padding=3, stride=1)
+        self.fusion = nn.Conv2d(in_channels=in_channels*4, out_channels=out_channels, kernel_size=1)
 
     def forward(self, feat_sam, feat_fpn):
         x_reduction = self.reduction(torch.cat([feat_sam, feat_fpn], dim=1))
+        x_1 = self.conv1x1(x_reduction)
         x_3 = self.conv3x3(x_reduction)
         x_5 = self.conv5x5(x_reduction)
         x_7 = self.conv7x7(x_reduction)
-        x_fusion = self.fusion(torch.cat([x_3, x_5, x_7], dim=1))
+        x_fusion = self.fusion(torch.cat([x_1, x_3, x_5, x_7], dim=1))
 
         return x_fusion
 
@@ -231,9 +233,9 @@ class Fusion(nn.Module):
     
     def forward(self, feat_sam_list, feat_fpn_list):
         x_fusion_0 = self.multiscale_0(self.cbam_0(feat_sam_list[0]), self.cbam_0(feat_fpn_list[0]))
-        x_fusion_1 = self.multiscale_0(self.cbam_0(feat_sam_list[1]), self.cbam_0(feat_fpn_list[1]))
-        x_fusion_2 = self.multiscale_0(self.cbam_0(feat_sam_list[2]), self.cbam_0(feat_fpn_list[2]))
-        x_fusion_3 = self.multiscale_0(self.cbam_0(feat_sam_list[3]), self.cbam_0(feat_fpn_list[3]))
+        x_fusion_1 = self.multiscale_1(self.cbam_1(feat_sam_list[1]), self.cbam_1(feat_fpn_list[1]))
+        x_fusion_2 = self.multiscale_2(self.cbam_2(feat_sam_list[2]), self.cbam_2(feat_fpn_list[2]))
+        x_fusion_3 = self.multiscale_3(self.cbam_3(feat_sam_list[3]), self.cbam_3(feat_fpn_list[3]))
 
         return (x_fusion_0, x_fusion_1, x_fusion_2, x_fusion_3)
 
@@ -243,23 +245,23 @@ class ImgDecoder(nn.Module):
         super().__init__()
         
         self.up_block3 = nn.Sequential(
-            ConvBNReLU(in_channel=in_channels[0]*2, out_channel=in_channels[0]),
-            ConvBNReLU(in_channel=in_channels[0], out_channel=in_channels[1]),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            ConvBNReLU(in_channels=in_channels[0]*2, out_channels=in_channels[0]),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ConvBNReLU(in_channels=in_channels[0], out_channels=in_channels[1]),
         )
         self.up_block2 = nn.Sequential(
-            ConvBNReLU(in_channel=in_channels[1]*2, out_channel=in_channels[1]),
-            ConvBNReLU(in_channel=in_channels[1], out_channel=in_channels[2]),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            ConvBNReLU(in_channels=in_channels[1]*2, out_channels=in_channels[1]),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ConvBNReLU(in_channels=in_channels[1], out_channels=in_channels[2])
         )
         self.up_block1 = nn.Sequential(
-            ConvBNReLU(in_channel=in_channels[2]*2, out_channel=in_channels[2]),
-            ConvBNReLU(in_channel=in_channels[2], out_channel=in_channels[3]),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            ConvBNReLU(in_channels=in_channels[2]*2, out_channels=in_channels[2]),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            ConvBNReLU(in_channels=in_channels[2], out_channels=in_channels[3])
         )
         self.up_block0 = nn.Sequential(
-            ConvBNReLU(in_channel=in_channels[3]*2, out_channel=in_channels[3]),
-            ConvBNReLU(in_channel=in_channels[3]*2, out_channel=out_channels)
+            ConvBNReLU(in_channels=in_channels[3]*2, out_channels=in_channels[3]),
+            ConvBNReLU(in_channels=in_channels[3], out_channels=out_channels)
         )
 
     def forward(self, x_de_3, x_fusion_list):

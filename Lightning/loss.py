@@ -123,20 +123,20 @@ def binary_dice_loss(pred, target, valid_mask, smooth=1, exponent=2, **kwards):
 class bce_dice(nn.Module):
     def __init__(self):
         super(bce_dice, self).__init__()
-        self.bce_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([5]))
+        self.bce_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([3]))
         self.dice_fn = DiceLoss()
-        self.edge_fn = EdgeWeightedLoss(mode='sobel')
+        # self.edge_fn = EdgeWeightedLoss(mode='sobel')
 
     def forward(self, y_pred, y_true):
         # bce = self.bce_fn(y_pred, y_true)
-        focal = sigmoid_focal_loss(y_pred, y_true, alpha=0.25, gamma=2, reduction='mean') #TODO:try
+        focal = sigmoid_focal_loss(y_pred, y_true, alpha=0.25, gamma=1.5, reduction='mean') #TODO:try
 
-        # dice = self.dice_fn(y_pred.sigmoid(), y_true)
-        dice = binary_dice_loss(y_pred, y_true, valid_mask=(y_true != 0).float()) #TODO:try
+        dice = self.dice_fn(y_pred.sigmoid(), y_true)
+        # dice = binary_dice_loss(y_pred, y_true, valid_mask=(y_true != 0).float()) #TODO:try
 
-        edge = self.edge_fn(y_pred, y_true)
+        # edge = self.edge_fn(y_pred, y_true)
         
-        return 0.6 * focal + 0.2 * dice + 0.2 * edge
+        return 0.8 * focal + 0.2 * dice
 
 class CombinedLoss(nn.Module):
     def __init__(self):

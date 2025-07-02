@@ -197,7 +197,7 @@ class ChannelAttention(nn.Module):
 
 #!!! 空间注意力模块
 class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=3):
+    def __init__(self, kernel_size=7):
         super().__init__()
         self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2, bias=False)
         
@@ -387,7 +387,7 @@ class ImgEncoder(nn.Module):
         self.sam.set_trainable_params()
         
         self.fpn = FPN(FPN_config=model_config['FPN'])
-        self.ch_atten = ChannelAttention(in_channels=256, reduction=2) #TODO 多尺度
+        self.ch_atten = ChannelAttention(in_channels=256, reduction=16) #TODO 多尺度
         self.sp_atten = SpatialAttention() #TODO 多尺度
         self.ss2d = SS2D(SS2D_config=model_config['SS2D'])
 

@@ -1,10 +1,10 @@
 import pytorch_lightning as pl
 import torch
-from torchmetrics.classification import BinaryJaccardIndex
-# from transformers import get_cosine_schedule_with_warmup
 
 from model.img_model import ImgModel
-from .loss import CrossEntropyLoss, FocalTverskyLoss, EdgeWeightedLoss, bce_dice
+from model.model_lightning import Model_Lightning
+from .loss import bce_dice
+from .valid import miou_from_binary_preds
 
 import math
 from torch.optim.lr_scheduler import _LRScheduler
@@ -44,15 +44,10 @@ class LitModule(pl.LightningModule):
 
         # model
         self.model = ImgModel(self.model_config)
+        # self.model = Model_Lightning(self.model_config)
 
         # train loss
-        # self.ce_loss = CrossEntropyLoss(use_sigmoid=True, loss_weight=1, pos_weight=[5.0]) #TODO
-        # self.tversky_loss = FocalTverskyLoss(alpha=0.3, beta=0.7, gamma=1) #TODO
-        # self.edge_loss = EdgeWeightedLoss(mode='sobel') #TODO
         self.bce_dice_loss = bce_dice()
-
-        # val loss
-        self.iou_metric = BinaryJaccardIndex(threshold=0.5)
 
     def forward(self, x):
         return self.model(x)
@@ -60,15 +55,6 @@ class LitModule(pl.LightningModule):
     def training_step(self, batch, batch_idx, *args, **kwargs):
         inputs, targets = batch
         logits = self(inputs)
-
-        # ce_loss = self.ce_loss(logits, targets)
-        # tversky_loss = self.tversky_loss(logits, targets)
-        # edge_loss = self.edge_loss(logits, targets)
-        # combine_loss = 0.4*ce_loss + 0.4*tversky_loss + 0.2*edge_loss
-        # self.log("ce_loss", ce_loss, on_step=True, on_epoch=True, prog_bar=True)
-        # self.log("tversky_loss", tversky_loss, on_step=True, on_epoch=True, prog_bar=True)
-        # self.log("edge_loss", edge_loss, on_step=True, on_epoch=True, prog_bar=True)
-        # self.log("combine_loss", combine_loss, on_step=True, on_epoch=True, prog_bar=True)
 
         train_bce_dice_loss = self.bce_dice_loss(logits, targets)
         self.log("train_bce_dice_loss", train_bce_dice_loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -86,20 +72,11 @@ class LitModule(pl.LightningModule):
         inputs, targets = batch
         logits = self(inputs)
 
-        # ce_loss = self.ce_loss(logits, targets)
-        # tversky_loss = self.tversky_loss(logits, targets)
-        # edge_loss = self.edge_loss(logits, targets)
-        # combine_loss = 0.4*ce_loss + 0.4*tversky_loss + 0.2*edge_loss
-        # self.log("ce_loss", ce_loss, on_step=True, on_epoch=True, prog_bar=True)
-        # self.log("tversky_loss", tversky_loss, on_step=True, on_epoch=True, prog_bar=True)
-        # self.log("edge_loss", edge_loss, on_step=True, on_epoch=True, prog_bar=True)
-        # self.log("combine_loss", combine_loss, on_step=True, on_epoch=True, prog_bar=True)
-
         val_bce_dice_loss = self.bce_dice_loss(logits, targets)
         self.log("val_bce_dice_loss", val_bce_dice_loss, on_step=False, on_epoch=True, prog_bar=True)
 
-        val_iou = self.iou_metric(logits.sigmoid(), targets.int())
-        self.log("val_iou", val_iou, on_step=False, on_epoch=True, prog_bar=True)
+        val_miou = miou_from_binary_preds(logits.sigmoid()>0.5, targets)
+        self.log("val_miou", val_miou, on_step=False, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):
         sam_lr = self.optimizer_config['sam_lr']
@@ -109,11 +86,18 @@ class LitModule(pl.LightningModule):
         sam_params = [p for n, p in self.named_parameters() if 'sam' in n and p.requires_grad]
         not_sam_params = [p for n, p in self.named_parameters() if 'sam' not in n and p.requires_grad]
 
-        optimizer = torch.optim.Adam([
-                {'params': sam_params, 'lr': sam_lr},
-                {'params': not_sam_params, 'lr': not_sam_lr}
-            ], 
-            weight_decay=weight_decay)
+        if self.optimizer_config['name'].lower() == 'adamw':
+            optimizer = torch.optim.AdamW([
+                    {'params': sam_params, 'lr': sam_lr},
+                    {'params': not_sam_params, 'lr': not_sam_lr}
+                ], 
+                weight_decay=weight_decay)
+        elif self.optimizer_config['name'].lower() == 'adam':
+            optimizer = torch.optim.Adam([
+                    {'params': sam_params, 'lr': sam_lr},
+                    {'params': not_sam_params, 'lr': not_sam_lr}
+                ], 
+                weight_decay=weight_decay)
 
         if self.scheduler_config['name'].lower() == 'cosine_restart':
             scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
@@ -145,6 +129,35 @@ class LitModule(pl.LightningModule):
                     T_max=self.scheduler_config['total_steps'],
                     eta_min=self.scheduler_config['eta_min']
                 )
+            return {
+                'optimizer': optimizer,
+                'lr_scheduler': {
+                    'scheduler': scheduler,
+                    'interval': 'step',
+                    'frequency': 1,
+                }
+            }
+        elif self.scheduler_config['name'].lower() == 'poly':
+            warmup_steps = self.scheduler_config['warmup_steps']
+            total_steps = self.scheduler_config['total_steps']
+            power = self.scheduler_config.get['power']
+            eta_min = self.scheduler_config.get['eta_min']
+
+            def poly_lr_lambda(current_step):
+                if current_step < warmup_steps:
+                    return float(current_step) / float(max(1, warmup_steps))
+                else:
+                    decay_step = current_step - warmup_steps
+                    decay_total = max(1, total_steps - warmup_steps)
+                    poly_decay = (1 - decay_step / decay_total) ** power
+                    min_lr_factor = eta_min / self.scheduler_config['base_lr']
+                    return poly_decay * (1 - min_lr_factor) + min_lr_factor
+
+            scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer,
+                lr_lambda=poly_lr_lambda
+            )
+
             return {
                 'optimizer': optimizer,
                 'lr_scheduler': {

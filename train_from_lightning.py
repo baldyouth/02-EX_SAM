@@ -59,7 +59,7 @@ logger = TensorBoardLogger(unique_dir, name="boards")
 
 # 早停
 early_stop = DelayedEarlyStopping(
-    monitor='val_iou',
+    monitor='val_miou',
     mode='max',
     patience=config['train']['patience'],
     min_epochs=config['train']['min_epochs'],
@@ -69,7 +69,7 @@ early_stop = DelayedEarlyStopping(
 checkpoint_callbacks = [
     # 1️⃣ 保存最佳验证集模型
     ModelCheckpoint(
-        monitor='val_iou',
+        monitor='val_miou',
         mode='max',
         save_top_k=1,
         save_last=True,
@@ -103,7 +103,7 @@ trainer = pl.Trainer(
 data_module = CrackDataModule(data_config=config['data'])
 
 # 如果使用CosineAnnealingLR需要计算总step
-if config['scheduler']['name'].lower() == 'cosine':
+if config['scheduler']['name'].lower() in ['cosine', 'poly']:
     data_module.setup()
     num_samples = len(data_module.train_dataset)
     total_steps = calc_total_training_steps(num_samples=num_samples, config=config)
