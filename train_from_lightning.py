@@ -3,6 +3,7 @@ import torch
 import os
 from datetime import datetime
 from ruamel.yaml import YAML
+import shutil
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
@@ -10,9 +11,11 @@ from Lightning.lightning_module import LitModule
 from Lightning.datamodule import CrackDataModule
 
 torch.set_float32_matmul_precision('medium')
+pl.seed_everything(111, workers=True)
 
 yaml = YAML()
-with open('config/config_lightning.yaml', 'r') as f:
+config_path = 'config/config_lightning.yaml'
+with open(config_path, 'r') as f:
     config = yaml.load(f)
 
 #TODO
@@ -55,11 +58,15 @@ def calc_total_training_steps(num_samples, config):
 #!!! start training
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 unique_dir = f"checkpoints/{timestamp}"
+os.makedirs(unique_dir, exist_ok=True)
 logger = TensorBoardLogger(unique_dir, name="boards")
+
+# save config
+shutil.copy(config_path, unique_dir)
 
 # 早停
 early_stop = DelayedEarlyStopping(
-    monitor='val_miou',
+    monitor='miou',
     mode='max',
     patience=config['train']['patience'],
     min_epochs=config['train']['min_epochs'],
@@ -69,7 +76,7 @@ early_stop = DelayedEarlyStopping(
 checkpoint_callbacks = [
     # 1️⃣ 保存最佳验证集模型
     ModelCheckpoint(
-        monitor='val_miou',
+        monitor='miou',
         mode='max',
         save_top_k=1,
         save_last=True,
@@ -104,10 +111,15 @@ data_module = CrackDataModule(data_config=config['data'])
 
 # 如果使用CosineAnnealingLR需要计算总step
 if config['scheduler']['name'].lower() in ['cosine', 'poly']:
+    # 计算 total_steps
     data_module.setup()
     num_samples = len(data_module.train_dataset)
     total_steps = calc_total_training_steps(num_samples=num_samples, config=config)
     config['scheduler']['total_steps'] = total_steps
+
+    # 计算 warmup_steps
+    warmup_steps = int(0.05 * total_steps)
+    config['scheduler']['warmup_steps'] = warmup_steps
 
     model = LitModule(model_config=config['model'], 
                       optimizer_config=config['optimizer'], 
@@ -119,4 +131,3 @@ else:
 
 # 训练启动
 trainer.fit(model, datamodule=data_module)
-

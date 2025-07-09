@@ -1,4 +1,5 @@
 import os
+import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
@@ -43,7 +44,8 @@ class CrackDataset(Dataset):
             augmented = self.transform(image=image, mask=mask)
             image = augmented['image']
             mask = (augmented['mask'] > 127).float().unsqueeze(0)
-        #TODO self.transform==None
+        else:
+            pass
 
         return image, mask
 
@@ -60,7 +62,7 @@ class CrackDataModule(pl.LightningDataModule):
         self.sam_transform = A.Compose([
             A.Resize(height=448, width=448),
             A.Normalize(mean=[0.485, 0.456, 0.406],
-                        std=[0.229, 0.224, 0.225]), # Normalize 自动转成 float32 并除以255 → [0,1], 再减去均值，除以标准差
+                        std=[0.229, 0.224, 0.225]), # # Normalize 自动转成 float32 并除以255 → [0,1], 再减去均值，除以标准差
             ToTensorV2()
         ])
 
@@ -108,7 +110,7 @@ if __name__ == '__main__':
     data_module.setup()
     dataset = data_module.train_dataset
 
-    img, mask = dataset[3]
+    img, mask = dataset[1]
     print(img.shape, mask.shape)
     print(img.shape, img.dtype)
     print(mask.shape, mask.dtype)

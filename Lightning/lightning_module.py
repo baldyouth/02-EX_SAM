@@ -4,13 +4,13 @@ import torch
 from model.img_model import ImgModel
 from model.model_lightning import Model_Lightning
 from .loss import bce_dice
-from .valid import miou_from_binary_preds
+from .valid import calculate_iou
 
 import math
 from torch.optim.lr_scheduler import _LRScheduler
 
-# Warmup CosineAnnealingLR
-class CosineAnnealingWarmupLR(_LRScheduler):
+# Warmup CosineAnnealingWarmupStepLR
+class CosineAnnealingWarmupStepLR(_LRScheduler):
     def __init__(self, optimizer, warmup_steps, max_steps, eta_min=1e-6, last_epoch=-1):
         self.warmup_steps = warmup_steps
         self.max_steps = max_steps
@@ -31,6 +31,28 @@ class CosineAnnealingWarmupLR(_LRScheduler):
             # 超出总步数，保持最低学习率
             return [self.eta_min for _ in self.base_lrs]
 
+# # Warmup CosineAnnealingWarmupEpochLR
+class CosineAnnealingWarmupEpochLR(_LRScheduler):
+    def __init__(self, optimizer, warmup_epochs, max_epochs, eta_min=1e-6, last_epoch=-1):
+        self.warmup_epochs = warmup_epochs
+        self.max_epochs = max_epochs
+        self.eta_min = eta_min
+        super().__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        epoch = self.last_epoch
+        if epoch < self.warmup_epochs and self.warmup_epochs != 0:
+            # 线性warmup
+            return [base_lr * (epoch + 1) / self.warmup_epochs for base_lr in self.base_lrs]
+        elif epoch <= self.max_epochs:
+            # cosine annealing
+            progress = (epoch - self.warmup_epochs) / (self.max_epochs - self.warmup_epochs)
+            return [self.eta_min + 0.5 * (base_lr - self.eta_min) * (1 + math.cos(math.pi * progress))
+                    for base_lr in self.base_lrs]
+        else:
+            # 固定最低学习率
+            return [self.eta_min for _ in self.base_lrs]
+
 #!!! module
 class LitModule(pl.LightningModule):
     def __init__(self, model_config, optimizer_config, scheduler_config, *args, **kwargs):
@@ -42,7 +64,7 @@ class LitModule(pl.LightningModule):
         self.optimizer_config = optimizer_config
         self.scheduler_config = scheduler_config
 
-        # model
+        #!!! model
         self.model = ImgModel(self.model_config)
         # self.model = Model_Lightning(self.model_config)
 
@@ -57,14 +79,14 @@ class LitModule(pl.LightningModule):
         logits = self(inputs)
 
         train_bce_dice_loss = self.bce_dice_loss(logits, targets)
-        self.log("train_bce_dice_loss", train_bce_dice_loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train_bce_dice_loss", train_bce_dice_loss, on_step=False, on_epoch=True, prog_bar=True)
 
         opt = self.trainer.optimizers[0]
         lr_sam = opt.param_groups[0]['lr']
         lr_not_sam = opt.param_groups[1]['lr']
 
-        self.log("lr_sam", lr_sam, on_epoch=True, prog_bar=False, logger=True)
-        self.log("lr_not_sam", lr_not_sam, on_epoch=True, prog_bar=False, logger=True)
+        self.log("lr_sam", lr_sam, on_step=True, on_epoch=True, prog_bar=False, logger=True)
+        self.log("lr_not_sam", lr_not_sam, on_step=True, on_epoch=True, prog_bar=False, logger=True)
 
         return train_bce_dice_loss
     
@@ -75,8 +97,10 @@ class LitModule(pl.LightningModule):
         val_bce_dice_loss = self.bce_dice_loss(logits, targets)
         self.log("val_bce_dice_loss", val_bce_dice_loss, on_step=False, on_epoch=True, prog_bar=True)
 
-        val_miou = miou_from_binary_preds(logits.sigmoid()>0.5, targets)
-        self.log("val_miou", val_miou, on_step=False, on_epoch=True, prog_bar=True)
+        iou_0, iou_1, miou  = calculate_iou(logits, targets, thresh=0.5)
+        self.log("iou_0", iou_0, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("iou_1", iou_1, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("miou", miou, on_step=False, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):
         sam_lr = self.optimizer_config['sam_lr']
@@ -86,6 +110,7 @@ class LitModule(pl.LightningModule):
         sam_params = [p for n, p in self.named_parameters() if 'sam' in n and p.requires_grad]
         not_sam_params = [p for n, p in self.named_parameters() if 'sam' not in n and p.requires_grad]
 
+        # optimizer
         if self.optimizer_config['name'].lower() == 'adamw':
             optimizer = torch.optim.AdamW([
                     {'params': sam_params, 'lr': sam_lr},
@@ -99,6 +124,7 @@ class LitModule(pl.LightningModule):
                 ], 
                 weight_decay=weight_decay)
 
+        # scheduler
         if self.scheduler_config['name'].lower() == 'cosine_restart':
             scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
                     optimizer, 
@@ -115,28 +141,52 @@ class LitModule(pl.LightningModule):
                 }
             }
         elif self.scheduler_config['name'].lower() == 'cosine':
-            warmup_steps = self.scheduler_config['warmup_steps']
-            if warmup_steps > 0:
-                scheduler = CosineAnnealingWarmupLR(
-                    optimizer,
-                    warmup_steps=warmup_steps,
-                    max_steps=self.scheduler_config['total_steps'],
-                    eta_min=self.scheduler_config['eta_min']
-                )
-            else:
-                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                    optimizer,
-                    T_max=self.scheduler_config['total_steps'],
-                    eta_min=self.scheduler_config['eta_min']
-                )
-            return {
-                'optimizer': optimizer,
-                'lr_scheduler': {
-                    'scheduler': scheduler,
-                    'interval': 'step',
-                    'frequency': 1,
+            if self.scheduler_config['interval'].lower() == 'epoch': # 按照epoch更新
+                warmup_epochs = self.scheduler_config['warmup_epochs']
+                if warmup_epochs > 0:
+                    scheduler = CosineAnnealingWarmupEpochLR(
+                        optimizer,
+                        warmup_epochs=warmup_epochs,
+                        max_epochs=self.scheduler_config['T_max'],
+                        eta_min=self.scheduler_config['eta_min']
+                    )
+                else:
+                    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                        optimizer,
+                        T_max=self.scheduler_config['T_max'],
+                        eta_min=self.scheduler_config['eta_min']
+                    )
+                return {
+                    'optimizer': optimizer,
+                    'lr_scheduler': {
+                        'scheduler': scheduler,
+                        'interval': 'epoch',
+                        'frequency': 1,
+                    }
                 }
-            }
+            else: # 按照step更新
+                warmup_steps = self.scheduler_config['warmup_steps']
+                if warmup_steps > 0:
+                    scheduler = CosineAnnealingWarmupStepLR(
+                        optimizer,
+                        warmup_steps=warmup_steps,
+                        max_steps=self.scheduler_config['total_steps'],
+                        eta_min=self.scheduler_config['eta_min']
+                    )
+                else:
+                    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                        optimizer,
+                        T_max=self.scheduler_config['total_steps'],
+                        eta_min=self.scheduler_config['eta_min']
+                    )
+                return {
+                    'optimizer': optimizer,
+                    'lr_scheduler': {
+                        'scheduler': scheduler,
+                        'interval': 'step',
+                        'frequency': 1,
+                    }
+                }
         elif self.scheduler_config['name'].lower() == 'poly':
             warmup_steps = self.scheduler_config['warmup_steps']
             total_steps = self.scheduler_config['total_steps']

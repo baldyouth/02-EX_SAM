@@ -24,11 +24,12 @@ class ChannelAttention(nn.Module):
         super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
+        reduction_channels = max(1, in_channels // reduction)
         
         self.mlp = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels // reduction, 1, bias=False),
+            nn.Conv2d(in_channels, reduction_channels, 1, bias=False),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels // reduction, in_channels, 1, bias=False)
+            nn.Conv2d(reduction_channels, in_channels, 1, bias=False)
         )
 
         self.sigmoid = nn.Sigmoid()
@@ -58,7 +59,7 @@ class SpatialAttention(nn.Module):
 
 #!!! CBAM
 class CBAMBlock(nn.Module):
-    def __init__(self, in_channels, reduction=16, spatial_kernel=7):
+    def __init__(self, in_channels, reduction=16, spatial_kernel=3):
         super(CBAMBlock, self).__init__()
         self.channel_attention = ChannelAttention(in_channels, reduction)
         self.spatial_attention = SpatialAttention(spatial_kernel)
@@ -111,21 +112,21 @@ class FPN(nn.Module):
         base_channels = FPN_config['base_channels']
 
         self.layer0 = nn.Sequential(
-            ConvBNReLU(in_channels=3, out_channels=base_channels//2, kernel_size=3, stride=1, padding=1),
-            ConvBNReLU(in_channels=base_channels//2, out_channels=base_channels//2, kernel_size=3, stride=1, padding=1)
-        ) # b, 3, H, W -> b, 32, H, W
-        self.layer1 = nn.Sequential(
-            ConvBNReLU(in_channels=base_channels//2, out_channels=base_channels, kernel_size=3, stride=2, padding=1),
+            ConvBNReLU(in_channels=3, out_channels=base_channels, kernel_size=3, stride=2, padding=1),
             ConvBNReLU(in_channels=base_channels, out_channels=base_channels, kernel_size=3, stride=1, padding=1)
-        ) # b, 32, H, W -> b, 64, H/2, W/2
-        self.layer2 = nn.Sequential(
+        )
+        self.layer1 = nn.Sequential(
             ConvBNReLU(in_channels=base_channels, out_channels=base_channels*2, kernel_size=3, stride=2, padding=1),
             ConvBNReLU(in_channels=base_channels*2, out_channels=base_channels*2, kernel_size=3, stride=1, padding=1)
-        ) # b, 64, H/2, W/2 -> b, 128, H/4, W/4
-        self.layer3 = nn.Sequential(
+        )
+        self.layer2 = nn.Sequential(
             ConvBNReLU(in_channels=base_channels*2, out_channels=base_channels*4, kernel_size=3, stride=2, padding=1),
             ConvBNReLU(in_channels=base_channels*4, out_channels=base_channels*4, kernel_size=3, stride=1, padding=1)
-        ) # b, 128, H/4, W/4 -> b, 256, H/8, W/8
+        )
+        self.layer3 = nn.Sequential(
+            ConvBNReLU(in_channels=base_channels*4, out_channels=base_channels*8, kernel_size=3, stride=2, padding=1),
+            ConvBNReLU(in_channels=base_channels*8, out_channels=base_channels*8, kernel_size=3, stride=1, padding=1)
+        )
 
     def forward(self, x):
         x_fpn_0 = self.layer0(x)
@@ -178,16 +179,14 @@ class MultiScaleConv(nn.Module):
         self.conv1x1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
         self.conv3x3 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1, stride=1)
         self.conv5x5 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=5, padding=2, stride=1)
-        self.conv7x7 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=7, padding=3, stride=1)
-        self.fusion = nn.Conv2d(in_channels=in_channels*4, out_channels=out_channels, kernel_size=1)
+        self.fusion = nn.Conv2d(in_channels=in_channels*3, out_channels=out_channels, kernel_size=1)
 
     def forward(self, feat_sam, feat_fpn):
         x_reduction = self.reduction(torch.cat([feat_sam, feat_fpn], dim=1))
         x_1 = self.conv1x1(x_reduction)
         x_3 = self.conv3x3(x_reduction)
         x_5 = self.conv5x5(x_reduction)
-        x_7 = self.conv7x7(x_reduction)
-        x_fusion = self.fusion(torch.cat([x_1, x_3, x_5, x_7], dim=1))
+        x_fusion = self.fusion(torch.cat([x_1, x_3, x_5], dim=1))
 
         return x_fusion
 
@@ -221,19 +220,19 @@ class Fusion(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.cbam_0 = CBAMBlock(in_channels=32)
-        self.cbam_1 = CBAMBlock(in_channels=64)
+        # self.cbam_0 = CBAMBlock(in_channels=32)
+        # self.cbam_1 = CBAMBlock(in_channels=64)
         self.cbam_2 = CBAMBlock(in_channels=128)
         self.cbam_3 = CBAMBlock(in_channels=256)
 
-        self.multiscale_0 = MultiScaleConv(in_channels=32, out_channels=32)
-        self.multiscale_1 = MultiScaleConv(in_channels=64, out_channels=64)
+        # self.multiscale_0 = MultiScaleConv(in_channels=32, out_channels=32)
+        # self.multiscale_1 = MultiScaleConv(in_channels=64, out_channels=64)
         self.multiscale_2 = MultiScaleConv(in_channels=128, out_channels=128)
         self.multiscale_3 = MultiScaleConv(in_channels=256, out_channels=256)
     
     def forward(self, feat_sam_list, feat_fpn_list):
-        x_fusion_0 = self.multiscale_0(self.cbam_0(feat_sam_list[0]), self.cbam_0(feat_fpn_list[0]))
-        x_fusion_1 = self.multiscale_1(self.cbam_1(feat_sam_list[1]), self.cbam_1(feat_fpn_list[1]))
+        x_fusion_0 = self.multiscale_0(feat_sam_list[0], feat_fpn_list[0])
+        x_fusion_1 = self.multiscale_1(feat_sam_list[1], feat_fpn_list[1])
         x_fusion_2 = self.multiscale_2(self.cbam_2(feat_sam_list[2]), self.cbam_2(feat_fpn_list[2]))
         x_fusion_3 = self.multiscale_3(self.cbam_3(feat_sam_list[3]), self.cbam_3(feat_fpn_list[3]))
 
@@ -287,7 +286,7 @@ class Model_Lightning(nn.Module):
 
         self.fusion = Fusion()
 
-        self.ss2d = SS2D(SS2D_config=model_config['SS2D'])
+        # self.ss2d = SS2D(SS2D_config=model_config['SS2D'])
 
         self.decoder = ImgDecoder()
 
@@ -300,7 +299,8 @@ class Model_Lightning(nn.Module):
         (x_fusion_0, x_fusion_1, x_fusion_2, x_fusion_3) = self.fusion([x_sam_0, x_sam_1, x_sam_2, x_sam_3], 
                                                                        [x_fpn_0, x_fpn_1, x_fpn_2, x_fpn_3])
         
-        x_de_3 = self.ss2d(x_sam_3 + x_fpn_3)
+        # x_de_3 = self.ss2d(x_sam_3 + x_fpn_3)
+        x_de_3 = x_sam_3 + x_fpn_3
 
         logits = self.decoder(x_de_3, [x_fusion_0, x_fusion_1, x_fusion_2, x_fusion_3])
 

@@ -6,22 +6,34 @@ import torch.nn as nn
 from torchvision.ops import sigmoid_focal_loss
 
 class TverskyLoss(nn.Module):
-    def __init__(self, alpha=0.6, beta=0.4, smooth=1e-6):
-        super().__init__()
+    def __init__(self, alpha=0.3, beta=0.7, smooth=1e-6):
+        """
+        alpha: 控制 False Positive (FP) 惩罚
+        beta: 控制 False Negative (FN) 惩罚
+        alpha + beta = 1 时退化为 Dice
+        alpha < beta 时更关注减少 FN（适合小目标）
+        """
+        super(TverskyLoss, self).__init__()
         self.alpha = alpha
         self.beta = beta
         self.smooth = smooth
 
-    def forward(self, preds, targets):
-        preds = torch.sigmoid(preds)
-        targets = targets.float()
+    def forward(self, y_pred, y_true):
 
-        TP = (preds * targets).sum(dim=(1,2,3))
-        FP = ((1 - targets) * preds).sum(dim=(1,2,3))
-        FN = (targets * (1 - preds)).sum(dim=(1,2,3))
+        y_pred = torch.sigmoid(y_pred)
+        y_true = y_true.float()
+        
+        # Flatten
+        y_pred = y_pred.view(y_pred.size(0), -1)
+        y_true = y_true.view(y_true.size(0), -1)
+
+        TP = (y_pred * y_true).sum(dim=1)
+        FP = ((1 - y_true) * y_pred).sum(dim=1)
+        FN = (y_true * (1 - y_pred)).sum(dim=1)
 
         tversky = (TP + self.smooth) / (TP + self.alpha * FP + self.beta * FN + self.smooth)
         loss = 1 - tversky
+
         return loss.mean()
     
 class FocalTverskyLoss(nn.Module):
@@ -109,34 +121,24 @@ class DiceLoss(nn.Module):
 
         return 1 - dc
 
-def binary_dice_loss(pred, target, valid_mask, smooth=1, exponent=2, **kwards):
-    assert pred.shape[0] == target.shape[0]
-    pred = pred.contiguous().view(pred.shape[0], -1)
-    target = target.contiguous().view(target.shape[0], -1)
-    valid_mask = valid_mask.contiguous().view(valid_mask.shape[0], -1)
-
-    num = torch.sum(torch.mul(pred, target) * valid_mask, dim=1) * 2 + smooth
-    den = torch.sum(pred.pow(exponent) + target.pow(exponent), dim=1) + smooth
-
-    return 1 - (num / den).mean()
-
 class bce_dice(nn.Module):
     def __init__(self):
         super(bce_dice, self).__init__()
         self.bce_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([3]))
-        self.dice_fn = DiceLoss()
+        # self.dice_fn = DiceLoss()
+        self.tversky = TverskyLoss(alpha=0.3, beta=0.7)
         # self.edge_fn = EdgeWeightedLoss(mode='sobel')
 
     def forward(self, y_pred, y_true):
         # bce = self.bce_fn(y_pred, y_true)
-        focal = sigmoid_focal_loss(y_pred, y_true, alpha=0.25, gamma=1.5, reduction='mean') #TODO:try
+        focal = sigmoid_focal_loss(y_pred, y_true, alpha=0.25, gamma=2, reduction='mean')
 
-        dice = self.dice_fn(y_pred.sigmoid(), y_true)
-        # dice = binary_dice_loss(y_pred, y_true, valid_mask=(y_true != 0).float()) #TODO:try
+        # dice = self.dice_fn(y_pred.sigmoid(), y_true)
+        tversky = self.tversky(y_pred, y_true)
 
         # edge = self.edge_fn(y_pred, y_true)
         
-        return 0.8 * focal + 0.2 * dice
+        return 0.5 * focal + 0.5 * tversky
 
 class CombinedLoss(nn.Module):
     def __init__(self):

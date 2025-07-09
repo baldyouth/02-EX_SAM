@@ -1,38 +1,27 @@
 import torch
 
-def miou_from_binary_preds(preds, target, num_classes=1):
-    """
-    输入：
-        preds: 二值化预测结果，float32，shape [b,1,h,w]，值为0.0或1.0
-        target: 二值化真实标签，float32，shape 同上，值为0.0或1.0
-        num_classes: 类别数，默认为1（二分类）
-    返回：
-        mIoU: float 标量，平均交并比
-    """
-    pred_bin = preds.long()  # 转整型0/1
-    target_bin = target.long()
+def calculate_iou(pred_logits, gt_mask, thresh):
 
-    b = pred_bin.shape[0]
-    ious = []
-
-    for batch_i in range(b):
-        p = pred_bin[batch_i].view(-1)
-        t = target_bin[batch_i].view(-1)
-
-        iou_per_class = []
-        for l in range(num_classes + 1):
-            pll = torch.sum((p == l) & (t == l)).item()
-            plt = torch.sum((p == l) & (t != l)).item()
-            ptl = torch.sum((p != l) & (t == l)).item()
-
-            denom = plt + ptl + pll
-            iou = 1.0 if denom == 0 else pll / denom
-            iou_per_class.append(iou)
-
-        ious.append(sum(iou_per_class) / (num_classes + 1))
-        miou = sum(ious) / b
-
-    return miou
+    pred_prob = torch.sigmoid(pred_logits)
+    pred_binary = (pred_prob > thresh).float()
+    
+    gt_binary = gt_mask.float()
+    
+    # 计算TP、TN、FP、FN
+    TP = torch.sum((pred_binary == 1) & (gt_binary == 1)).item()
+    TN = torch.sum((pred_binary == 0) & (gt_binary == 0)).item()
+    FP = torch.sum((pred_binary == 1) & (gt_binary == 0)).item()
+    FN = torch.sum((pred_binary == 0) & (gt_binary == 1)).item()
+    
+    # 计算IoU
+    if (FN + FP + TP) <= 0:
+        miou = 0
+    else:
+        iou_1 = TP / (FN + FP + TP)
+        iou_0 = TN / (FN + FP + TN)
+        miou = (iou_1 + iou_0) / 2
+    
+    return iou_0, iou_1, miou    
 
 # P, R, F1
 def compute_f_measure(pred_mask, gt_mask):
