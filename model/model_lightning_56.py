@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import math
 from mmpretrain import get_model
 
@@ -123,18 +124,13 @@ class FPN(nn.Module):
             ConvBNReLU(in_channels=base_channels*2, out_channels=base_channels*4, kernel_size=3, stride=2, padding=1),
             ConvBNReLU(in_channels=base_channels*4, out_channels=base_channels*4, kernel_size=3, stride=1, padding=1)
         )
-        self.layer3 = nn.Sequential(
-            ConvBNReLU(in_channels=base_channels*4, out_channels=base_channels*8, kernel_size=3, stride=2, padding=1),
-            ConvBNReLU(in_channels=base_channels*8, out_channels=base_channels*8, kernel_size=3, stride=1, padding=1)
-        )
 
     def forward(self, x):
         x_fpn_0 = self.layer0(x)
         x_fpn_1 = self.layer1(x_fpn_0)
         x_fpn_2 = self.layer2(x_fpn_1)
-        x_fpn_3 = self.layer3(x_fpn_2)
 
-        return (x_fpn_0, x_fpn_1, x_fpn_2, x_fpn_3)
+        return (x_fpn_0, x_fpn_1, x_fpn_2)
 
 #!!! SAMEncoder
 class SAMEncoder(nn.Module):
@@ -150,8 +146,8 @@ class SAMEncoder(nn.Module):
                 img_size=SAM_config['img_size'],
                 patch_size=SAM_config['patch_size'],
                 window_size=SAM_config['window_size'],
-                out_indices=SAM_config['out_indices'], 
-                out_channels=SAM_config['out_channels']), # out_indices=(2, 5, 8, 11)
+                out_indices=SAM_config['out_indices'],
+                out_channels=SAM_config['out_channels']),
             pretrained=SAM_config['pretrained'])
         self._inject_lora()
     
@@ -165,8 +161,10 @@ class SAMEncoder(nn.Module):
     
     def set_trainable_params(self):
         for name, param in self.sam.named_parameters():
-            if 'lora_' in name or "pos_embed" in name or "rel_pos" in name:
+            if ('lora_' in name or "pos_embed" in name or "rel_pos" in name or 'channel_reduction' in name
+                or 'layers.21' in name or 'layers.22' in name or 'layers.23' in name ):
                 param.requires_grad = True
+                # print(name)
             else:
                 param.requires_grad = False
 
@@ -203,74 +201,81 @@ class UpSAM(nn.Module):
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
             ConvBNReLU(in_channels=128, out_channels=64)
         )
-        self.up_block_3 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
-            ConvBNReLU(in_channels=64, out_channels=32)
-        )
 
-    def forward(self, x_sam_3):
-        x_sam_2 = self.up_block_1(x_sam_3)
-        x_sam_1 = self.up_block_2(x_sam_2)
-        x_sam_0 = self.up_block_3(x_sam_1)
+    def forward(self, x_sam_2):
+        x_sam_1 = self.up_block_1(x_sam_2)
+        x_sam_0 = self.up_block_2(x_sam_1)
 
-        return (x_sam_0, x_sam_1, x_sam_2)
+        return (x_sam_0, x_sam_1)
 
 #!!! Fusion
 class Fusion(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # self.cbam_0 = CBAMBlock(in_channels=32)
-        # self.cbam_1 = CBAMBlock(in_channels=64)
-        self.cbam_2 = CBAMBlock(in_channels=128)
-        self.cbam_3 = CBAMBlock(in_channels=256)
+        self.cbam_2 = CBAMBlock(in_channels=256)
 
-        # self.multiscale_0 = MultiScaleConv(in_channels=32, out_channels=32)
-        # self.multiscale_1 = MultiScaleConv(in_channels=64, out_channels=64)
-        self.multiscale_2 = MultiScaleConv(in_channels=128, out_channels=128)
-        self.multiscale_3 = MultiScaleConv(in_channels=256, out_channels=256)
+        self.multiscale_0 = MultiScaleConv(in_channels=64, out_channels=64)
+        self.multiscale_1 = MultiScaleConv(in_channels=128, out_channels=128)
+        self.multiscale_2 = MultiScaleConv(in_channels=256, out_channels=256)
     
     def forward(self, feat_sam_list, feat_fpn_list):
         x_fusion_0 = self.multiscale_0(feat_sam_list[0], feat_fpn_list[0])
         x_fusion_1 = self.multiscale_1(feat_sam_list[1], feat_fpn_list[1])
         x_fusion_2 = self.multiscale_2(self.cbam_2(feat_sam_list[2]), self.cbam_2(feat_fpn_list[2]))
-        x_fusion_3 = self.multiscale_3(self.cbam_3(feat_sam_list[3]), self.cbam_3(feat_fpn_list[3]))
 
-        return (x_fusion_0, x_fusion_1, x_fusion_2, x_fusion_3)
+        return (x_fusion_0, x_fusion_1, x_fusion_2)
 
 
 class ImgDecoder(nn.Module):
-    def __init__(self, in_channels=[256, 128, 64, 32], out_channels=1):
+    def __init__(self, in_channels=[256, 128, 64], out_channels=1):
         super().__init__()
         
-        self.up_block3 = nn.Sequential(
+        self.up_block2 = nn.Sequential(
             ConvBNReLU(in_channels=in_channels[0]*2, out_channels=in_channels[0]),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ConvBNReLU(in_channels=in_channels[0], out_channels=in_channels[1]),
         )
-        self.up_block2 = nn.Sequential(
+        self.up_block1 = nn.Sequential(
             ConvBNReLU(in_channels=in_channels[1]*2, out_channels=in_channels[1]),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             ConvBNReLU(in_channels=in_channels[1], out_channels=in_channels[2])
         )
-        self.up_block1 = nn.Sequential(
+        self.up_block0 = nn.Sequential(
             ConvBNReLU(in_channels=in_channels[2]*2, out_channels=in_channels[2]),
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            ConvBNReLU(in_channels=in_channels[2], out_channels=in_channels[3])
+            ConvBNReLU(in_channels=in_channels[2], out_channels=out_channels)
         )
-        self.up_block0 = nn.Sequential(
-            ConvBNReLU(in_channels=in_channels[3]*2, out_channels=in_channels[3]),
-            ConvBNReLU(in_channels=in_channels[3], out_channels=out_channels)
+        self.edge_block = nn.Sequential(
+            ConvBNReLU(in_channels=out_channels*2, out_channels=out_channels),
+            ConvBNReLU(in_channels=out_channels, out_channels=out_channels)
         )
 
-    def forward(self, x_de_3, x_fusion_list):
-        x_de_2 = self.up_block3(torch.cat([x_fusion_list[3], x_de_3], dim=1))
-        x_de_1 = self.up_block2(torch.cat([x_fusion_list[2], x_de_2], dim=1))
-        x_de_0 = self.up_block1(torch.cat([x_fusion_list[1], x_de_1], dim=1))
-        logits = self.up_block0(torch.cat([x_fusion_list[0], x_de_0], dim=1))
+    def forward(self, edge, x_de, x_fpn_list):
+        x_de_1 = self.up_block2(torch.cat([x_fpn_list[2], x_de], dim=1))
+        x_de_0 = self.up_block1(torch.cat([x_fpn_list[1], x_de_1], dim=1))
+        x_de_f = self.up_block0(torch.cat([x_fpn_list[0], x_de_0], dim=1))
+        logits = self.edge_block(torch.cat([x_de_f, edge], dim=1))
         # prob = torch.sigmoid(logits)
 
         return logits
+
+def compute_edge(x):
+        x_gray = x.mean(dim=1, keepdim=True)
+
+        sobel_x = torch.tensor([[[[-1, 0, 1],
+                                [-2, 0, 2],
+                                [-1, 0, 1]]]], device=x.device, dtype=x.dtype)
+        sobel_y = torch.tensor([[[[-1, -2, -1],
+                                [ 0,  0,  0],
+                                [ 1,  2,  1]]]], device=x.device, dtype=x.dtype)
+
+        edge_x = F.conv2d(x_gray, sobel_x, padding=1)
+        edge_y = F.conv2d(x_gray, sobel_y, padding=1)
+        edge = torch.sqrt(edge_x ** 2 + edge_y ** 2 + 1e-6)
+
+        edge = (edge - edge.min()) / (edge.max() - edge.min() + 1e-6)
+        return edge
 
 #!!! Model_Lightning
 class Model_Lightning(nn.Module):
@@ -280,36 +285,29 @@ class Model_Lightning(nn.Module):
         self.sam = SAMEncoder(LoRA_config=model_config['LoRA'], SAM_config=model_config['SAM'])
         self.sam.set_trainable_params()
 
-        self.upsam = UpSAM()
+        self.sam_reduction = nn.Sequential(
+            ConvBNReLU(in_channels=256*4, out_channels=256*3, kernel_size=3, stride=1, padding=1),
+            ConvBNReLU(in_channels=256*3, out_channels=256*2, kernel_size=3, stride=1, padding=1),
+            ConvBNReLU(in_channels=256*2, out_channels=256*1, kernel_size=3, stride=1, padding=1),
+        )
         
         self.fpn = FPN(FPN_config=model_config['FPN'])
 
-        self.fusion = Fusion()
-
-        # self.ss2d = SS2D(SS2D_config=model_config['SS2D'])
+        self.cbam_sam = CBAMBlock(in_channels=256)
+        self.cbam_fpn = CBAMBlock(in_channels=256)
 
         self.decoder = ImgDecoder()
 
     def forward(self, img):
-        (x_sam_3,) = self.sam(img)
-        (x_sam_0, x_sam_1, x_sam_2) = self.upsam(x_sam_3)
+        edge = compute_edge(img)
 
-        (x_fpn_0, x_fpn_1, x_fpn_2, x_fpn_3) = self.fpn(img)
+        (x_sam_0, x_sam_1, x_sam_2, x_sam_3) = self.sam(img)
+        x_sam = self.sam_reduction(torch.cat([x_sam_0, x_sam_1, x_sam_2, x_sam_3], dim=1))
 
-        (x_fusion_0, x_fusion_1, x_fusion_2, x_fusion_3) = self.fusion([x_sam_0, x_sam_1, x_sam_2, x_sam_3], 
-                                                                       [x_fpn_0, x_fpn_1, x_fpn_2, x_fpn_3])
+        (x_fpn_0, x_fpn_1, x_fpn_2) = self.fpn(img)
         
-        # x_de_3 = self.ss2d(x_sam_3 + x_fpn_3)
-        x_de_3 = x_sam_3 + x_fpn_3
+        x_de = self.cbam_sam(x_sam) + self.cbam_fpn(x_fpn_2)
 
-        logits = self.decoder(x_de_3, [x_fusion_0, x_fusion_1, x_fusion_2, x_fusion_3])
+        logits = self.decoder(edge, x_de, [x_fpn_0, x_fpn_1, x_fpn_2])
 
         return logits
-
-
-
-
-        
-
-
-

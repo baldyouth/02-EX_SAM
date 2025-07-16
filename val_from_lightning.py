@@ -53,11 +53,11 @@ def visualize_and_save(img, mask, preds, prob=None, save_path="vis", idx=0):
 
 if __name__ == "__main__":
     yaml = YAML()
-    with open('config/config_lightning.yaml', 'r') as f:
+    with open('config/config_lightning_56.yaml', 'r') as f:
         config = yaml.load(f)
 
     model = LitModule.load_from_checkpoint(
-        checkpoint_path="checkpoints/20250709_161406/best-epoch=139.ckpt",
+        checkpoint_path="checkpoints/20250716_014008/epoch=059.ckpt",
         model_config=config['model'],
         optimizer_config=config['optimizer'],
         scheduler_config=config['scheduler'])
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     save_dir = "./visualizations"
     os.makedirs(save_dir, exist_ok=True)
     save_num = 20
-    threshold = 0.48
+    threshold = 0.5
 
     for idx, (img, mask) in enumerate(val_dataloader):
         img = img.cuda()

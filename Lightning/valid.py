@@ -21,7 +21,50 @@ def calculate_iou(pred_logits, gt_mask, thresh):
         iou_0 = TN / (FN + FP + TN)
         miou = (iou_1 + iou_0) / 2
     
-    return iou_0, iou_1, miou    
+    return iou_0, iou_1, miou
+
+import torch
+import numpy as np
+
+def calculate_best_iou(pred_logits, gt_mask, thresh_step=0.01):
+    pred_prob = torch.sigmoid(pred_logits)
+    gt_binary = gt_mask.float()
+
+    best_thresh = 0.0
+    best_iou_0 = 0.0
+    best_iou_1 = 0.0
+    best_miou = 0.0
+
+    for thresh in np.arange(0.0, 1.0, thresh_step):
+        pred_binary = (pred_prob > thresh).float()
+
+        TP = torch.sum((pred_binary == 1) & (gt_binary == 1)).item()
+        TN = torch.sum((pred_binary == 0) & (gt_binary == 0)).item()
+        FP = torch.sum((pred_binary == 1) & (gt_binary == 0)).item()
+        FN = torch.sum((pred_binary == 0) & (gt_binary == 1)).item()
+
+        denom_1 = TP + FP + FN
+        denom_0 = TN + FP + FN
+
+        if denom_1 > 0:
+            iou_1 = TP / denom_1
+        else:
+            iou_1 = 0.0
+
+        if denom_0 > 0:
+            iou_0 = TN / denom_0
+        else:
+            iou_0 = 0.0
+
+        miou = (iou_0 + iou_1) / 2
+
+        if miou > best_miou:
+            best_miou = miou
+            best_thresh = thresh
+            best_iou_0 = iou_0
+            best_iou_1 = iou_1
+
+    return best_iou_0, best_iou_1, best_miou
 
 # P, R, F1
 def compute_f_measure(pred_mask, gt_mask):

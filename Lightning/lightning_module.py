@@ -2,9 +2,9 @@ import pytorch_lightning as pl
 import torch
 
 from model.img_model import ImgModel
-from model.model_lightning import Model_Lightning
+from model.model_lightning_56 import Model_Lightning
 from .loss import bce_dice
-from .valid import calculate_iou
+from .valid import calculate_best_iou
 
 import math
 from torch.optim.lr_scheduler import _LRScheduler
@@ -65,8 +65,8 @@ class LitModule(pl.LightningModule):
         self.scheduler_config = scheduler_config
 
         #!!! model
-        self.model = ImgModel(self.model_config)
-        # self.model = Model_Lightning(self.model_config)
+        # self.model = ImgModel(self.model_config)
+        self.model = Model_Lightning(self.model_config)
 
         # train loss
         self.bce_dice_loss = bce_dice()
@@ -97,7 +97,7 @@ class LitModule(pl.LightningModule):
         val_bce_dice_loss = self.bce_dice_loss(logits, targets)
         self.log("val_bce_dice_loss", val_bce_dice_loss, on_step=False, on_epoch=True, prog_bar=True)
 
-        iou_0, iou_1, miou  = calculate_iou(logits, targets, thresh=0.5)
+        iou_0, iou_1, miou  = calculate_best_iou(logits, targets)
         self.log("iou_0", iou_0, on_step=False, on_epoch=True, prog_bar=True)
         self.log("iou_1", iou_1, on_step=False, on_epoch=True, prog_bar=True)
         self.log("miou", miou, on_step=False, on_epoch=True, prog_bar=True)
