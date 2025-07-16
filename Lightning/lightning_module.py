@@ -190,22 +190,40 @@ class LitModule(pl.LightningModule):
         elif self.scheduler_config['name'].lower() == 'poly':
             warmup_steps = self.scheduler_config['warmup_steps']
             total_steps = self.scheduler_config['total_steps']
-            power = self.scheduler_config.get['power']
-            eta_min = self.scheduler_config.get['eta_min']
+            power = self.scheduler_config['power']
+            eta_min = self.scheduler_config['eta_min']
 
-            def poly_lr_lambda(current_step):
-                if current_step < warmup_steps:
-                    return float(current_step) / float(max(1, warmup_steps))
-                else:
-                    decay_step = current_step - warmup_steps
-                    decay_total = max(1, total_steps - warmup_steps)
-                    poly_decay = (1 - decay_step / decay_total) ** power
-                    min_lr_factor = eta_min / self.scheduler_config['base_lr']
-                    return poly_decay * (1 - min_lr_factor) + min_lr_factor
+            sam_lr = self.optimizer_config['sam_lr']
+            not_sam_lr = self.optimizer_config['not_sam_lr']
 
+            def get_poly_lr_lambda(base_lr):
+                def poly_lr_lambda(current_step):
+                    if current_step < warmup_steps:
+                        return float(current_step) / float(max(1, warmup_steps))
+                    else:
+                        decay_step = current_step - warmup_steps
+                        decay_total = max(1, total_steps - warmup_steps)
+                        poly_decay = (1 - decay_step / decay_total) ** power
+                        min_lr_factor = eta_min / base_lr
+                        return poly_decay * (1 - min_lr_factor) + min_lr_factor
+                return poly_lr_lambda
+    
+            # def poly_lr_lambda(current_step):
+            #     if current_step < warmup_steps:
+            #         return float(current_step) / float(max(1, warmup_steps))
+            #     else:
+            #         decay_step = current_step - warmup_steps
+            #         decay_total = max(1, total_steps - warmup_steps)
+            #         poly_decay = (1 - decay_step / decay_total) ** power
+            #         min_lr_factor = eta_min / self.scheduler_config['base_lr']
+            #         return poly_decay * (1 - min_lr_factor) + min_lr_factor
+            
             scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer,
-                lr_lambda=poly_lr_lambda
+                lr_lambda=[
+                    get_poly_lr_lambda(sam_lr),
+                    get_poly_lr_lambda(not_sam_lr)
+                ]
             )
 
             return {

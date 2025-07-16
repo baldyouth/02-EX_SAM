@@ -124,9 +124,11 @@ class DiceLoss(nn.Module):
 class bce_dice(nn.Module):
     def __init__(self):
         super(bce_dice, self).__init__()
-        self.bce_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10]))
+        self.bce_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([5]))
+
         self.dice_fn = DiceLoss()
         # self.tversky_fn = TverskyLoss(alpha=0.8, beta=0.2)
+        
         # self.edge_fn = EdgeWeightedLoss(mode='sobel')
 
     def forward(self, y_pred, y_true):
