@@ -74,7 +74,7 @@ if __name__ == "__main__":
         config = yaml.load(f)
 
     model = LitModule.load_from_checkpoint(
-        checkpoint_path="checkpoints/20250724_175010/epoch=049.ckpt",
+        checkpoint_path="checkpoints/20250724_181421/epoch=039.ckpt",
         model_config=config['model'],
         optimizer_config=config['optimizer'],
         scheduler_config=config['scheduler'])

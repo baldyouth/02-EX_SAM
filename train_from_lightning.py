@@ -123,11 +123,13 @@ if config['scheduler']['name'].lower() in ['cosine', 'poly']:
 
     model = LitModule(model_config=config['model'], 
                       optimizer_config=config['optimizer'], 
-                      scheduler_config=config['scheduler'])
+                      scheduler_config=config['scheduler'],
+                      loss_config=config['loss'])
 else:
     model = LitModule(model_config=config['model'], 
                       optimizer_config=config['optimizer'], 
-                      scheduler_config=config['scheduler'])
+                      scheduler_config=config['scheduler'],
+                      loss_config=config['loss'])
 
 # 训练启动
 trainer.fit(model, datamodule=data_module)
