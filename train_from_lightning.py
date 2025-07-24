@@ -14,7 +14,7 @@ torch.set_float32_matmul_precision('medium')
 pl.seed_everything(111, workers=True)
 
 yaml = YAML()
-config_path = 'config/config_lightning_56.yaml'
+config_path = 'config/config_lightning_28.yaml'
 with open(config_path, 'r') as f:
     config = yaml.load(f)
 

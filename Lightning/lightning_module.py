@@ -2,7 +2,7 @@ import pytorch_lightning as pl
 import torch
 
 from model.img_model import ImgModel
-from model.model_lightning_56 import Model_Lightning
+from model.model_lightning_28 import Model_Lightning
 from .loss import bce_dice
 from .valid import calculate_best_iou
 
@@ -217,7 +217,7 @@ class LitModule(pl.LightningModule):
             #         poly_decay = (1 - decay_step / decay_total) ** power
             #         min_lr_factor = eta_min / self.scheduler_config['base_lr']
             #         return poly_decay * (1 - min_lr_factor) + min_lr_factor
-            
+
             scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer,
                 lr_lambda=[

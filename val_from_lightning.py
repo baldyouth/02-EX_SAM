@@ -70,11 +70,11 @@ def visualize_and_save(img, mask, preds, prob=None, save_path="vis", idx=0):
 
 if __name__ == "__main__":
     yaml = YAML()
-    with open('config/config_lightning_56.yaml', 'r') as f:
+    with open('config/config_lightning_28.yaml', 'r') as f:
         config = yaml.load(f)
 
     model = LitModule.load_from_checkpoint(
-        checkpoint_path="checkpoints/20250716_210130/epoch=039.ckpt",
+        checkpoint_path="checkpoints/20250724_175010/epoch=049.ckpt",
         model_config=config['model'],
         optimizer_config=config['optimizer'],
         scheduler_config=config['scheduler'])
@@ -87,7 +87,7 @@ if __name__ == "__main__":
 
     save_dir = "./visualizations"
     os.makedirs(save_dir, exist_ok=True)
-    save_num = 20
+    save_num = 10
 
     threshold_list = np.arange(0.0, 1.0, 0.02)
 

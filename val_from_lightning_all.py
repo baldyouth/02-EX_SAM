@@ -13,11 +13,11 @@ def precision_recall_f1(tp, fp, fn):
 
 if __name__ == "__main__":
     yaml = YAML()
-    with open('config/config_lightning_56.yaml', 'r') as f:
+    with open('config/config_lightning_28.yaml', 'r') as f:
         config = yaml.load(f)
 
     model = LitModule.load_from_checkpoint(
-        checkpoint_path="checkpoints/20250716_210130/best-epoch=039.ckpt",
+        checkpoint_path="checkpoints/20250724_175010/best-epoch=049.ckpt",
         model_config=config['model'],
         optimizer_config=config['optimizer'],
         scheduler_config=config['scheduler'])

@@ -293,11 +293,10 @@ class ImgDecoder(nn.Module):
             ConvBNSiLU(in_channels=out_channels, out_channels=out_channels)
         )
 
-    def forward(self, edge, x_de, x_fpn_list):
+    def forward(self, x_de, x_fpn_list):
         x_de_1 = self.up_block2(torch.cat([x_fpn_list[2], x_de], dim=1))
         x_de_0 = self.up_block1(torch.cat([x_fpn_list[1], x_de_1], dim=1))
-        x_de_f = self.up_block0(torch.cat([x_fpn_list[0], x_de_0], dim=1))
-        logits = self.edge_block(torch.cat([x_de_f, edge], dim=1))
+        logits = self.up_block0(torch.cat([x_fpn_list[0], x_de_0], dim=1))
         # prob = torch.sigmoid(logits)
 
         return logits
@@ -336,7 +335,7 @@ class Model_Lightning(nn.Module):
         self.decoder = ImgDecoder()
 
     def forward(self, img):
-        edge = compute_edge(img)
+        # edge = compute_edge(img)
 
         (x_sam_0, x_sam_1, x_sam_2, x_sam_3) = self.sam(img)
         x_sam = self.sam_reduction(torch.cat([x_sam_0, x_sam_1, x_sam_2, x_sam_3], dim=1))
@@ -345,6 +344,6 @@ class Model_Lightning(nn.Module):
         
         x_de = self.cbam_sam(x_sam)
 
-        logits = self.decoder(edge, x_de, [x_fpn_0, x_fpn_1, x_fpn_2])
+        logits = self.decoder(x_de, [x_fpn_0, x_fpn_1, x_fpn_2])
 
         return logits
